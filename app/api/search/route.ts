@@ -7,45 +7,42 @@ const commandSchema = z.object({
   command: z.string().min(1),
 });
 
-const PYTHON_SCRAPER_URL = process.env.PYTHON_SCRAPER_URL || "http://localhost:8000";
+const PYTHON_ENGINE_URL = process.env.PYTHON_ENGINE_URL || "http://localhost:8000";
 
 /**
- * Send structured query to the Python scraping service and get a job_id back.
+ * Send the raw natural-language query to the Python Data Engine and get a job_id back.
+ * The Python engine handles its own NLP parsing via Gemini.
  */
-async function sendToPythonScraper(parsedQuery: any): Promise<string | null> {
+async function sendToPythonEngine(command: string, limit: number): Promise<string | null> {
   try {
-    const response = await fetch(`${PYTHON_SCRAPER_URL}/scrape`, {
+    const response = await fetch(`${PYTHON_ENGINE_URL}/scrape`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        category: parsedQuery.category,
-        location: parsedQuery.location,
-        filters: parsedQuery.filters,
-        fields: parsedQuery.requested_fields,
-        keywords: parsedQuery.keywords,
-        limit: 50,
+        query: command,
+        limit,
       }),
     });
 
     if (!response.ok) {
-      console.error(`Python scraper returned status ${response.status}`);
+      console.error(`Python engine returned status ${response.status}`);
       return null;
     }
 
     const data = await response.json();
     return data.job_id || null;
   } catch (error) {
-    console.error("Failed to connect to Python scraper:", error);
+    console.error("Failed to connect to Python engine:", error);
     return null;
   }
 }
 
 /**
- * Poll the Python scraper for job progress.
+ * Poll the Python engine for job progress.
  */
 async function pollPythonJob(pythonJobId: string): Promise<any | null> {
   try {
-    const response = await fetch(`${PYTHON_SCRAPER_URL}/jobs/${pythonJobId}`);
+    const response = await fetch(`${PYTHON_ENGINE_URL}/jobs/${pythonJobId}`);
     if (!response.ok) return null;
     return await response.json();
   } catch {
@@ -54,11 +51,11 @@ async function pollPythonJob(pythonJobId: string): Promise<any | null> {
 }
 
 /**
- * Fetch completed results from the Python scraper.
+ * Fetch completed results from the Python engine.
  */
 async function fetchPythonResults(pythonJobId: string): Promise<any[] | null> {
   try {
-    const response = await fetch(`${PYTHON_SCRAPER_URL}/jobs/${pythonJobId}/results`);
+    const response = await fetch(`${PYTHON_ENGINE_URL}/jobs/${pythonJobId}/results`);
     if (!response.ok) return null;
     const data = await response.json();
     return data.records || [];
@@ -114,21 +111,21 @@ export async function POST(request: Request) {
       })
     });
 
-    // 3. Send to Python scraper
+    // 3. Send to Python Data Engine (it handles its own NLP parsing via Gemini)
     await updateSearchJob(job.id, {
       status: "SCRAPING",
       parsedQuery: JSON.stringify({
         query: parsedQuery,
-        progress: { stage: "Connecting to scraper engine", detail: "Initializing Python scraping service" }
+        progress: { stage: "Connecting to data engine", detail: "Initializing Google Places search" }
       })
     });
 
-    const pythonJobId = await sendToPythonScraper(parsedQuery);
+    const pythonJobId = await sendToPythonEngine(command, 50);
 
     if (!pythonJobId) {
       await updateSearchJob(job.id, {
         status: "ERROR",
-        error: "Could not connect to the scraping service. Please ensure the Python scraper is running on " + PYTHON_SCRAPER_URL,
+        error: "Could not connect to the data engine. Please ensure the Python engine is running on " + PYTHON_ENGINE_URL,
         completedAt: new Date()
       });
 
@@ -203,11 +200,16 @@ export async function POST(request: Request) {
                 price: r.price_range || null,
                 openingHours: r.opening_hours || null,
                 description: r.description || null,
-                source: r.source || "OpenStreetMap",
-                sourceUrl: r.source_url || null,
+                source: r.source || "Google Places API",
+                sourceUrl: r.source_url || r.google_maps_url || null,
                 latitude: r.latitude || null,
                 longitude: r.longitude || null,
-                additionalData: null,
+                additionalData: {
+                  google_maps_url: r.google_maps_url || null,
+                  phone_national: r.phone_national || null,
+                  business_status: r.business_status || null,
+                  review_count: r.review_count || null,
+                },
               }));
 
               await saveBusinesses(job.id, businesses);
@@ -230,7 +232,7 @@ export async function POST(request: Request) {
             completed = true;
             await updateSearchJob(job.id, {
               status: "ERROR",
-              error: status.error || "Scraping job failed",
+              error: status.error || "Data engine job failed",
               completedAt: new Date()
             });
           }
@@ -239,7 +241,7 @@ export async function POST(request: Request) {
         if (!completed) {
           await updateSearchJob(job.id, {
             status: "ERROR",
-            error: "Scraping job timed out after 5 minutes",
+            error: "Data engine job timed out after 5 minutes",
             completedAt: new Date()
           });
         }

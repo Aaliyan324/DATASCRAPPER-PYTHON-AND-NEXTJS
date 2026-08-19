@@ -1,17 +1,20 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
+  --background: #FFFFFF;
   --foreground: #000000;
   
   --color-primary: #4B67A0;
-  --color-secondary: #ffffff;
+  --color-secondary: #FFFFFF;
   --color-tertiary: #6D47AE;
+  --color-neutral: #FFFFFF;
   --color-surface: #000000;
+  --color-accent: #4B67A0;
   
-  --color-text-primary: #ffffff;
+  --color-text-primary: #FFFFFF;
   --color-text-secondary: #000000;
   --color-border-custom: #E5E7EB;
+  --color-border-alt: #FFFFFF;
 }
 
 @theme {
@@ -20,19 +23,23 @@
   --color-primary: var(--color-primary);
   --color-secondary: var(--color-secondary);
   --color-tertiary: var(--color-tertiary);
+  --color-neutral: var(--color-neutral);
   --color-surface: var(--color-surface);
+  --color-accent: var(--color-accent);
   --color-text-primary: var(--color-text-primary);
   --color-text-secondary: var(--color-text-secondary);
   --color-border-custom: var(--color-border-custom);
+  --color-border-alt: var(--color-border-alt);
   
-  --font-geist: var(--font-geist-sans);
+  --font-geist: "Geist", ui-sans-serif, system-ui, sans-serif;
   
   --radius-xs: 2px;
   --radius-sm: 3px;
   --radius-md: 4px;
   --radius-lg: 6px;
+  --radius-full: 9999px;
   
-  /* Layout Base Spacings */
+  /* Layout Base Spacings (4px base unit scale) */
   --spacing-base: 4px;
   --spacing-sm: 2px;
   --spacing-md: 4px;
@@ -46,7 +53,7 @@
 body {
   background-color: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-geist);
   margin: 0;
   padding: 0;
   min-height: 100vh;
@@ -54,17 +61,33 @@ body {
   flex-direction: column;
 }
 
+/* Typography Classes */
+.display-lg {
+  font-family: var(--font-geist);
+  font-size: 80px;
+  font-weight: 300;
+  line-height: 84px;
+  letter-spacing: -0.05em;
+}
+
+.body-md {
+  font-family: var(--font-geist);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
 /* Gradient border shell according to Design.md */
 .gradient-border-shell {
   padding: 4px;
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   background: linear-gradient(135deg, var(--color-primary), var(--color-tertiary));
   box-shadow: rgba(0, 0, 0, 0.05) 0px 1px 2px 0px;
   transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .gradient-border-shell-content {
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   background-color: var(--color-surface);
   color: var(--color-text-primary);
   padding: var(--spacing-card-padding);
@@ -72,20 +95,61 @@ body {
 }
 
 /* Elevation & Depth Treatments */
+.shadow-default-custom {
+  box-shadow: rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0.05) 0px 1px 2px 0px;
+}
+
 .shadow-inset-custom {
   box-shadow: rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0.05) 0px 2px 4px 0px inset;
 }
 
-.shadow-default-custom {
-  box-shadow: rgba(0, 0, 0, 0.05) 0px 1px 2px 0px;
+.shadow-elevated-custom {
+  box-shadow: rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0.1) 0px 20px 25px -5px, rgba(0, 0, 0, 0.1) 0px 8px 10px -6px;
 }
 
 .border-light-custom {
-  border: 0.67px solid var(--color-border-custom);
+  border: 1px solid var(--color-border-custom);
 }
 
-.border-dark-custom {
-  border: 0.67px solid rgba(255, 255, 255, 0.15);
+.border-alt-custom {
+  border: 1px solid var(--color-border-alt);
+}
+
+/* Component Utilities */
+.btn-primary {
+  background-color: var(--color-secondary);
+  color: var(--color-surface);
+  font-family: var(--font-geist);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  border-radius: var(--radius-md);
+  padding: 6px;
+  border: 0px solid var(--color-border-custom);
+  cursor: pointer;
+  transition: opacity 150ms ease;
+}
+
+.btn-primary:hover {
+  opacity: 0.9;
+}
+
+.btn-link {
+  background-color: transparent;
+  color: var(--color-secondary);
+  font-family: var(--font-geist);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  border-radius: var(--radius-md);
+  padding: 6px;
+  border: 0px solid var(--color-border-custom);
+  cursor: pointer;
+  transition: opacity 150ms ease;
+}
+
+.btn-link:hover {
+  opacity: 0.8;
 }
 
 /* Scrollbars custom styling */

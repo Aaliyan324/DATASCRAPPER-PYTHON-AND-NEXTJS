@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "dev:scraper": "cd scraper-service && .venv\\Scripts\\activate && uvicorn main:app --reload --port 8000"
+    "dev:engine": "cd python-engine && .venv\\Scripts\\activate && uvicorn server:app --reload --port 8000"
   },
   "dependencies": {
     "@prisma/client": "^7.9.1",

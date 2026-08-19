@@ -14,13 +14,16 @@ export function exportToExcel(businesses: Business[], command: string) {
     City: b.city || "",
     Country: b.country || "",
     Phone: b.phone || "",
+    "Phone National": b.additionalData?.phone_national || "",
     Email: b.email || "",
     Website: b.website || "",
     Rating: b.rating || "",
+    "Review Count": b.additionalData?.review_count || b.reviewCount || "",
+    "Business Status": b.additionalData?.business_status || "",
+    "Google Maps URL": b.additionalData?.google_maps_url || b.sourceUrl || "",
     Price: b.price || "",
     "Opening Hours": b.openingHours || "",
     Source: b.source,
-    "Source URL": b.sourceUrl || "",
     Latitude: b.latitude || "",
     Longitude: b.longitude || "",
   }));
@@ -30,7 +33,7 @@ export function exportToExcel(businesses: Business[], command: string) {
   XLSX.utils.book_append_sheet(workbook, worksheet, "Scraped Data");
 
   // Adjust column widths automatically
-  const maxProps = [{ wch: 4 }, { wch: 30 }, { wch: 15 }, { wch: 40 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 20 }, { wch: 25 }, { wch: 25 }, { wch: 8 }, { wch: 8 }, { wch: 20 }, { wch: 15 }, { wch: 30 }];
+  const maxProps = [{ wch: 4 }, { wch: 30 }, { wch: 15 }, { wch: 40 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 20 }, { wch: 20 }, { wch: 25 }, { wch: 25 }, { wch: 8 }, { wch: 12 }, { wch: 15 }, { wch: 40 }, { wch: 8 }, { wch: 20 }, { wch: 15 }];
   worksheet["!cols"] = maxProps;
 
   const safeName = command.toLowerCase().replace(/[^a-z0-9]/g, "_").substring(0, 40);
@@ -66,7 +69,7 @@ export async function exportToPDF(businesses: Business[], command: string) {
   doc.text(`Source Engine: Directory Scraper & Search Indexes`, 14, 50);
 
   // Table structure
-  const columns = ["#", "Name", "Category", "City", "Phone", "Website", "Rating", "Address"];
+  const columns = ["#", "Name", "Category", "City", "Phone", "Website", "Rating", "Reviews", "Address", "Google Maps"];
   const rows = businesses.map((b, index) => [
     index + 1,
     b.name,
@@ -75,7 +78,9 @@ export async function exportToPDF(businesses: Business[], command: string) {
     b.phone || "",
     b.website || "",
     b.rating ? b.rating.toString() : "-",
+    b.additionalData?.review_count || b.reviewCount || "-",
     b.address || "",
+    b.additionalData?.google_maps_url || b.sourceUrl || "",
   ]);
 
   // Generate Table using standalone function call
@@ -100,9 +105,11 @@ export async function exportToPDF(businesses: Business[], command: string) {
       2: { cellWidth: 20 },
       3: { cellWidth: 20 },
       4: { cellWidth: 30 },
-      5: { cellWidth: 50 },
-      6: { cellWidth: 15 },
-      7: { cellWidth: "auto" },
+      5: { cellWidth: 45 },
+      6: { cellWidth: 12 },
+      7: { cellWidth: 12 },
+      8: { cellWidth: "auto" },
+      9: { cellWidth: 45 },
     },
     didDrawPage: (data: any) => {
       // Footer page numbering
@@ -122,10 +129,10 @@ export async function exportToPDF(businesses: Business[], command: string) {
  * Exports business dataset to standard comma-separated-values (.csv)
  */
 export function exportToCSV(businesses: Business[], command: string) {
-  const headers = ["ID", "Name", "Category", "Address", "Area", "City", "Country", "Phone", "Email", "Website", "Rating", "Price", "Opening Hours", "Source", "SourceUrl"];
-  
+  const headers = ["#", "Name", "Category", "Address", "Area", "City", "Country", "Phone", "Phone National", "Email", "Website", "Google Maps URL", "Rating", "Review Count", "Business Status", "Price", "Opening Hours", "Source", "Latitude", "Longitude"];
+
   const csvRows = [
-    headers.join(","), // Headers row
+    headers.join(","),
     ...businesses.map((b, idx) => {
       const vals = [
         idx + 1,
@@ -136,13 +143,18 @@ export function exportToCSV(businesses: Business[], command: string) {
         b.city || "",
         b.country || "",
         b.phone || "",
+        b.additionalData?.phone_national || "",
         b.email || "",
         b.website || "",
+        b.additionalData?.google_maps_url || b.sourceUrl || "",
         b.rating || "",
+        b.additionalData?.review_count || b.reviewCount || "",
+        b.additionalData?.business_status || "",
         b.price || "",
         b.openingHours || "",
         b.source,
-        b.sourceUrl || "",
+        b.latitude || "",
+        b.longitude || "",
       ];
       // Escape commas and quotes inside fields
       return vals

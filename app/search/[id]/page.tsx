@@ -32,7 +32,6 @@ import {
 import { GradientBorder } from "@/components/gradient-border";
 import { exportToExcel, exportToPDF, exportToCSV } from "@/lib/exporter";
 import { SearchJob, Business, JobStatus } from "@/lib/db";
-
 import { SearchQuery } from "@/lib/query-parser";
 
 interface ParsedQueryData {
@@ -45,14 +44,106 @@ interface ParsedQueryData {
 
 const STAGES = [
   "Understanding your request",
-  "Identifying search criteria",
-  "Connecting to scraper engine",
-  "Discovering sources",
+  "Parsing natural language",
+  "Connecting to data engine",
+  "Searching Google Places",
   "Collecting data",
   "Cleaning results",
   "Removing duplicates",
   "Finalizing results"
 ];
+
+// --- Animation Variants ---
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.08,
+      delayChildren: 0.1,
+    },
+  },
+};
+
+const itemVariants = {
+  hidden: { y: 16, opacity: 0 },
+  visible: {
+    y: 0,
+    opacity: 1,
+    transition: { type: "spring" as const, stiffness: 300, damping: 24 },
+  },
+};
+
+const fadeInUp = {
+  hidden: { y: 20, opacity: 0 },
+  visible: {
+    y: 0,
+    opacity: 1,
+    transition: { type: "spring" as const, stiffness: 350, damping: 25 },
+  },
+};
+
+const buttonHoverTap = {
+  whileHover: { scale: 1.03, transition: { type: "spring" as const, stiffness: 400, damping: 17 } },
+  whileTap: { scale: 0.95 },
+};
+
+const cardHover = {
+  whileHover: {
+    scale: 1.02,
+    borderColor: "#3b82f6",
+    boxShadow: "0 8px 30px rgba(0,0,0,0.06)",
+    transition: { type: "spring" as const, stiffness: 400, damping: 17 },
+  },
+  whileTap: { scale: 0.98 },
+};
+
+const tableRowVariants = {
+  hidden: { opacity: 0, x: -8 },
+  visible: (i: number) => ({
+    opacity: 1,
+    x: 0,
+    transition: { delay: i * 0.03, type: "spring" as const, stiffness: 350, damping: 25 },
+  }),
+  hover: {
+    backgroundColor: "#f9fafb",
+    transition: { duration: 0.15 },
+  },
+};
+
+const drawerVariants = {
+  hidden: { x: "100%" },
+  visible: {
+    x: 0,
+    transition: { type: "tween" as const, duration: 0.3, ease: "easeOut" as const },
+  },
+  exit: {
+    x: "100%",
+    transition: { type: "tween" as const, duration: 0.25, ease: "easeIn" as const },
+  },
+};
+
+const backdropVariants = {
+  hidden: { opacity: 0 },
+  visible: { opacity: 0.3 },
+  exit: { opacity: 0 },
+};
+
+const filterPanelVariants = {
+  hidden: { height: 0, opacity: 0 },
+  visible: {
+    height: "auto",
+    opacity: 1,
+    transition: { type: "spring" as const, stiffness: 400, damping: 30 },
+  },
+  exit: {
+    height: 0,
+    opacity: 0,
+    transition: { duration: 0.2, ease: "easeInOut" as const },
+  },
+};
+
+// ----------------------------------------------------------------------
 
 export default function SearchResultsPage() {
   const params = useParams();
@@ -94,11 +185,11 @@ export default function SearchResultsPage() {
       try {
         const res = await fetch(`/api/search/${jobId}`);
         if (!res.ok) throw new Error("Failed to fetch search job status");
-        
+
         const data = await res.json();
         if (data.success && isMounted) {
           setJob(data.job);
-          
+
           if (data.job.status === "COMPLETED") {
             clearInterval(pollInterval);
             fetchResults();
@@ -123,7 +214,7 @@ export default function SearchResultsPage() {
       try {
         const res = await fetch(`/api/search/${jobId}/results`);
         if (!res.ok) throw new Error("Failed to load results");
-        
+
         const data = await res.json();
         if (data.success && isMounted) {
           setResults(data.results || []);
@@ -139,7 +230,7 @@ export default function SearchResultsPage() {
       }
     };
 
-    fetchJob(); // Run immediately
+    fetchJob();
 
     pollInterval = setInterval(() => {
       fetchJob();
@@ -165,17 +256,17 @@ export default function SearchResultsPage() {
   const activeStageIndex = useMemo(() => {
     if (!decodedQuery?.progress?.stage) return 0;
     const stageStr = decodedQuery.progress.stage.toLowerCase();
-    
+
     if (stageStr.includes("understand")) return 0;
-    if (stageStr.includes("identif") || stageStr.includes("criteria")) return 1;
+    if (stageStr.includes("pars") || stageStr.includes("identif") || stageStr.includes("criteria")) return 1;
     if (stageStr.includes("connect") || stageStr.includes("prepar")) return 2;
-    if (stageStr.includes("discover") || stageStr.includes("source")) return 3;
+    if (stageStr.includes("search") || stageStr.includes("google") || stageStr.includes("discover") || stageStr.includes("source")) return 3;
     if (stageStr.includes("collect") || stageStr.includes("scrap") || stageStr.includes("geocod")) return 4;
     if (stageStr.includes("clean") || stageStr.includes("normaliz")) return 5;
     if (stageStr.includes("deduplicat") || stageStr.includes("remov")) return 6;
     if (stageStr.includes("final") || stageStr.includes("complet")) return 7;
-    
-    return 4; // Default in-progress middle stage
+
+    return 4;
   }, [decodedQuery?.progress?.stage]);
 
   // Extract cities and categories from dataset for filters
@@ -209,7 +300,6 @@ export default function SearchResultsPage() {
   const filteredAndSortedBusinesses = useMemo(() => {
     let list = [...results];
 
-    // 1. Text Search Match
     if (searchTerm.trim()) {
       const q = searchTerm.toLowerCase().trim();
       list = list.filter(
@@ -223,22 +313,18 @@ export default function SearchResultsPage() {
       );
     }
 
-    // 2. City Filter
     if (filterCity !== "all") {
       list = list.filter((b) => b.city === filterCity);
     }
 
-    // 3. Category Filter
     if (filterCategory !== "all") {
       list = list.filter((b) => b.category === filterCategory);
     }
 
-    // 4. Rating Filter
     if (filterMinRating > 0) {
       list = list.filter((b) => b.rating !== null && b.rating >= filterMinRating);
     }
 
-    // 5. Contact Options
     if (filterHasPhone) {
       list = list.filter((b) => !!b.phone);
     }
@@ -246,7 +332,6 @@ export default function SearchResultsPage() {
       list = list.filter((b) => !!b.website);
     }
 
-    // 6. Apply Sorting
     list.sort((a, b) => {
       let valA = a[sortBy];
       let valB = b[sortBy];
@@ -278,7 +363,6 @@ export default function SearchResultsPage() {
 
   const totalPages = Math.ceil(filteredAndSortedBusinesses.length / pageSize) || 1;
 
-  // Reset page on filter changes
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, filterCity, filterCategory, filterMinRating, filterHasPhone, filterHasWebsite]);
@@ -301,123 +385,162 @@ export default function SearchResultsPage() {
 
   return (
     <div className="flex flex-col min-h-screen bg-white text-black antialiased font-sans">
-      {/* Header bar */}
-      <header className="w-full flex items-center justify-between py-6 px-8 border-b border-[var(--color-border-custom)]">
-        <button
+      {/* Header bar with animation */}
+      <motion.header
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: "easeOut" }}
+        className="w-full flex items-center justify-between py-6 px-8 border-b border-[var(--color-border-custom)]"
+      >
+        <motion.button
+          whileHover={{ scale: 1.03 }}
+          whileTap={{ scale: 0.95 }}
           onClick={() => router.push("/")}
           className="flex items-center gap-2 text-xs font-mono text-zinc-500 hover:text-black transition-all cursor-pointer"
         >
           <ArrowLeft className="h-4 w-4" />
           BACK TO COMMAND CENTER
-        </button>
+        </motion.button>
         <div className="flex items-center gap-2">
-          <div className="h-2 w-2 rounded-full bg-[var(--color-primary)] animate-pulse" />
+          <motion.div
+            animate={{ scale: [1, 1.2, 1] }}
+            transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
+            className={`h-2 w-2 rounded-full ${job?.status === "COMPLETED" ? "bg-emerald-500" :
+                job?.status === "ERROR" ? "bg-red-500" : "bg-amber-500"
+              }`}
+          />
           <span className="text-xs font-mono text-zinc-500 uppercase tracking-widest">
             {job?.status || "INITIALIZING"}
           </span>
         </div>
-      </header>
+      </motion.header>
 
       {/* Main Panel Content */}
       <main className="flex-1 w-full max-w-[1400px] mx-auto px-6 py-8 flex flex-col gap-8">
-        
-        {/* LOADING & PROGRESS TRACKER */}
+
+        {/* LOADING & PROGRESS TRACKER with animations */}
         {loading && (
-          <section className="w-full py-12 flex flex-col gap-8">
-            <div className="max-w-2xl mx-auto text-center flex flex-col gap-4">
-              <h2 className="text-2xl font-light tracking-tight">Processing command query...</h2>
-              <p className="text-sm font-mono text-[var(--color-primary)] line-clamp-1 italic">
+          <motion.section
+            variants={containerVariants}
+            initial="hidden"
+            animate="visible"
+            className="w-full py-12 flex flex-col gap-8"
+          >
+            <motion.div variants={itemVariants} className="max-w-6xl mx-auto text-center flex flex-col gap-4 px-4">
+              <h2 className="text-3xl md:text-4xl font-light tracking-tight">Processing command query...</h2>
+              <p className="text-sm md:text-base font-mono text-[var(--color-primary)] break-words overflow-hidden">
                 "{job?.originalCommand}"
               </p>
-            </div>
+            </motion.div>
 
-            {/* Visualizer steps */}
-            <div className="max-w-xl mx-auto w-full">
-              <GradientBorder innerClassName="p-6 md:p-8 flex flex-col gap-6">
+            <motion.div variants={itemVariants} className="max-w-6xl mx-auto w-full px-4">
+              <GradientBorder innerClassName="p-8 md:p-10 flex flex-col gap-6">
                 <div className="flex flex-col gap-1">
                   <span className="text-xs uppercase font-mono tracking-wider text-zinc-400">
                     Active Scraper Pipeline
                   </span>
-                  <span className="text-lg font-bold text-white flex items-center gap-2">
-                    <Loader2 className="h-5 w-5 animate-spin text-[var(--color-primary)]" />
+                  <span className="text-xl md:text-2xl font-bold text-white flex items-center gap-3">
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
+                    >
+                      <Loader2 className="h-6 w-6 text-[var(--color-primary)]" />
+                    </motion.div>
                     {decodedQuery?.progress?.stage || "Understanding Request"}
                   </span>
-                  <span className="text-xs text-zinc-500 font-mono mt-1">
+                  <span className="text-sm text-zinc-500 font-mono mt-1 break-words">
                     {decodedQuery?.progress?.detail || "Initialising parsing engine..."}
                   </span>
                 </div>
 
-                {/* Progress Indicators */}
-                <div className="flex flex-col gap-3 mt-4">
+                {/* Progress Indicators with staggered animation */}
+                <div className="flex flex-col gap-4 mt-4">
                   {STAGES.map((stage, idx) => {
                     const isFinished = idx < activeStageIndex;
                     const isActive = idx === activeStageIndex;
                     return (
-                      <div key={idx} className="flex items-center gap-3 text-xs font-mono">
-                        <div
-                          className={`h-4.5 w-4.5 rounded-full flex items-center justify-center border text-[9px] ${
-                            isFinished
+                      <motion.div
+                        key={idx}
+                        initial={{ opacity: 0, x: -12 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: idx * 0.06 }}
+                        className="flex items-center gap-4 text-sm font-mono"
+                      >
+                        <motion.div
+                          className={`h-6 w-6 rounded-full flex items-center justify-center border text-[11px] font-bold shrink-0 ${isFinished
                               ? "bg-[var(--color-primary)] border-[var(--color-primary)] text-white"
                               : isActive
-                              ? "border-[var(--color-primary)] text-[var(--color-primary)] animate-pulse font-bold"
-                              : "border-zinc-800 text-zinc-600"
-                          }`}
+                                ? "border-[var(--color-primary)] text-[var(--color-primary)] animate-pulse"
+                                : "border-zinc-800 text-zinc-600"
+                            }`}
+                          animate={isActive ? { scale: [1, 1.15, 1] } : {}}
+                          transition={{ repeat: Infinity, duration: 1.8 }}
                         >
                           {isFinished ? "✓" : idx + 1}
-                        </div>
+                        </motion.div>
                         <span
                           className={
                             isFinished
                               ? "text-zinc-400 line-through decoration-zinc-800"
                               : isActive
-                              ? "text-white font-bold"
-                              : "text-zinc-600"
+                                ? "text-white font-bold"
+                                : "text-zinc-600"
                           }
                         >
                           {stage}
                         </span>
-                      </div>
+                      </motion.div>
                     );
                   })}
                 </div>
 
-                {/* Metadata summary parsed from command */}
+                {/* Metadata summary */}
                 {decodedQuery?.query && (
-                  <div className="border-t border-zinc-900 pt-4 mt-2 grid grid-cols-2 gap-4 text-xs font-mono">
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: 0.4 }}
+                    className="border-t border-zinc-900 pt-6 mt-4 grid grid-cols-1 md:grid-cols-2 gap-6 text-sm font-mono"
+                  >
                     <div className="flex flex-col gap-1">
-                      <span className="text-zinc-500 uppercase tracking-wider text-[10px]">Location Target</span>
-                      <span className="text-white flex items-center gap-1.5">
-                        <MapPin className="h-3 w-3 text-[var(--color-primary)]" />
+                      <span className="text-zinc-500 uppercase tracking-wider text-[11px]">Location Target</span>
+                      <span className="text-white flex items-center gap-1.5 break-words">
+                        <MapPin className="h-4 w-4 text-[var(--color-primary)] shrink-0" />
                         {decodedQuery.query.location.query || decodedQuery.query.location.city || "Pakistan"}
                       </span>
                     </div>
                     <div className="flex flex-col gap-1">
-                      <span className="text-zinc-500 uppercase tracking-wider text-[10px]">Data Category</span>
-                      <span className="text-white flex items-center gap-1.5">
-                        <Tag className="h-3 w-3 text-[var(--color-primary)]" />
+                      <span className="text-zinc-500 uppercase tracking-wider text-[11px]">Data Category</span>
+                      <span className="text-white flex items-center gap-1.5 break-words">
+                        <Tag className="h-4 w-4 text-[var(--color-primary)] shrink-0" />
                         {decodedQuery.query.category}
                       </span>
                     </div>
-                    <div className="col-span-2 flex flex-col gap-1">
-                      <span className="text-zinc-500 uppercase tracking-wider text-[10px]">Fields Requested</span>
-                      <span className="text-zinc-400 flex flex-wrap gap-1.5">
+                    <div className="md:col-span-2 flex flex-col gap-1">
+                      <span className="text-zinc-500 uppercase tracking-wider text-[11px]">Fields Requested</span>
+                      <span className="text-zinc-400 flex flex-wrap gap-2">
                         {decodedQuery.query.requested_fields.map((f, i) => (
-                          <span key={i} className="bg-zinc-900 px-1.5 py-0.5 rounded-[2px] text-[10px] text-zinc-300">
+                          <span key={i} className="bg-zinc-900 px-2 py-0.5 rounded-[2px] text-xs text-zinc-300 break-all">
                             {f}
                           </span>
                         ))}
                       </span>
                     </div>
-                  </div>
+                  </motion.div>
                 )}
               </GradientBorder>
-            </div>
-          </section>
+            </motion.div>
+          </motion.section>
         )}
 
-        {/* ERROR DISPLAY */}
+        {/* ERROR DISPLAY with animation */}
         {error && !loading && (
-          <section className="max-w-xl mx-auto w-full py-12">
+          <motion.section
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ type: "spring" as const, stiffness: 400, damping: 30 }}
+            className="max-w-xl mx-auto w-full py-12"
+          >
             <div className="border border-red-200 bg-red-50 text-red-800 p-6 rounded-[4px] flex flex-col gap-4">
               <div className="flex items-center gap-3">
                 <AlertTriangle className="h-6 w-6 text-red-600" />
@@ -426,22 +549,29 @@ export default function SearchResultsPage() {
               <p className="text-xs font-mono leading-relaxed bg-red-100/50 p-3 rounded-[2px] border border-red-200">
                 {error}
               </p>
-              <button
+              <motion.button
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.95 }}
                 onClick={() => router.push("/")}
                 className="mt-2 py-2 px-4 bg-red-600 text-white font-mono text-xs rounded-[2px] self-start cursor-pointer hover:bg-red-700 transition-all"
               >
                 RETURN & RETRY
-              </button>
+              </motion.button>
             </div>
-          </section>
+          </motion.section>
         )}
 
         {/* COMPLETED RESULTS DASHBOARD */}
         {!loading && !error && job && (
-          <div className="flex flex-col gap-6">
-            
+          <motion.div
+            variants={containerVariants}
+            initial="hidden"
+            animate="visible"
+            className="flex flex-col gap-6"
+          >
+
             {/* Dashboard Hero Header */}
-            <section className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-[var(--color-border-custom)]">
+            <motion.section variants={itemVariants} className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-[var(--color-border-custom)]">
               <div className="flex flex-col gap-1.5">
                 <span className="text-xs uppercase font-mono text-[var(--color-primary)] tracking-wider">
                   Result Analysis Report
@@ -461,67 +591,69 @@ export default function SearchResultsPage() {
                   </span>
                   <span>·</span>
                   <span className="text-zinc-400">
-                    Source: Python Scraper / OpenStreetMap
+                    Source: Google Places API
                   </span>
                 </div>
               </div>
 
               {/* Action Buttons */}
               <div className="flex items-center gap-3">
-                <button
+                <motion.button
+                  {...buttonHoverTap}
                   onClick={handleExcelExport}
                   className="flex items-center gap-2 py-2 px-4 border border-[var(--color-border-custom)] bg-zinc-50 hover:bg-zinc-100 font-mono text-xs rounded-[2px] transition-all cursor-pointer"
                 >
                   <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
                   EXCEL
-                </button>
-                <button
+                </motion.button>
+                <motion.button
+                  {...buttonHoverTap}
                   onClick={handlePDFExport}
                   className="flex items-center gap-2 py-2 px-4 border border-[var(--color-border-custom)] bg-zinc-50 hover:bg-zinc-100 font-mono text-xs rounded-[2px] transition-all cursor-pointer"
                 >
                   <FileText className="h-4 w-4 text-red-600" />
                   PDF REPORT
-                </button>
-                <button
+                </motion.button>
+                <motion.button
+                  {...buttonHoverTap}
                   onClick={handleCSVExport}
                   className="flex items-center gap-2 py-2 px-4 border border-[var(--color-border-custom)] bg-zinc-50 hover:bg-zinc-100 font-mono text-xs rounded-[2px] transition-all cursor-pointer"
                 >
                   <Download className="h-4 w-4 text-zinc-600" />
                   CSV
-                </button>
+                </motion.button>
               </div>
-            </section>
+            </motion.section>
 
-            {/* Metrics cards */}
-            <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="p-4 border border-[var(--color-border-custom)] rounded-[4px] bg-zinc-50 flex flex-col gap-1">
-                <span className="text-[10px] uppercase font-mono text-zinc-500 tracking-wider">Total Records</span>
-                <span className="text-2xl font-bold font-mono">{filteredAndSortedBusinesses.length}</span>
-                <span className="text-[10px] text-zinc-400">of {results.length} total found</span>
-              </div>
-              <div className="p-4 border border-[var(--color-border-custom)] rounded-[4px] bg-zinc-50 flex flex-col gap-1">
-                <span className="text-[10px] uppercase font-mono text-zinc-500 tracking-wider">Location Target</span>
-                <span className="text-lg font-bold truncate">
-                  {decodedQuery?.query.location.query || decodedQuery?.query.location.city || "Pakistan"}
-                </span>
-                <span className="text-[10px] text-zinc-400">Filtered: {filterCity === "all" ? "All Cities" : filterCity}</span>
-              </div>
-              <div className="p-4 border border-[var(--color-border-custom)] rounded-[4px] bg-zinc-50 flex flex-col gap-1">
-                <span className="text-[10px] uppercase font-mono text-zinc-500 tracking-wider">Target Category</span>
-                <span className="text-lg font-bold capitalize truncate">{decodedQuery?.query.category || "Business"}</span>
-                <span className="text-[10px] text-zinc-400">Filtered: {filterCategory === "all" ? "All" : filterCategory}</span>
-              </div>
-              <div className="p-4 border border-[var(--color-border-custom)] rounded-[4px] bg-zinc-50 flex flex-col gap-1">
-                <span className="text-[10px] uppercase font-mono text-zinc-500 tracking-wider">Data Coverage</span>
-                <span className="text-lg font-bold font-mono">
-                  {Math.round(((results.filter(r => r.phone).length + results.filter(r => r.website).length) / (results.length * 2 || 1)) * 100)}%
-                </span>
-                <span className="text-[10px] text-zinc-400">Contact detail availability</span>
-              </div>
-            </section>
+            {/* Metrics cards with staggered animation */}
+            <motion.section
+              variants={containerVariants}
+              initial="hidden"
+              animate="visible"
+              className="grid grid-cols-2 md:grid-cols-4 gap-4"
+            >
+              {[
+                { label: "Total Records", value: filteredAndSortedBusinesses.length, sub: `of ${results.length} total found` },
+                { label: "Location Target", value: decodedQuery?.query.location.query || decodedQuery?.query.location.city || "Pakistan", sub: `Filtered: ${filterCity === "all" ? "All Cities" : filterCity}` },
+                { label: "Target Category", value: decodedQuery?.query.category || "Business", sub: `Filtered: ${filterCategory === "all" ? "All" : filterCategory}` },
+                { label: "Data Coverage", value: `${Math.round(((results.filter(r => r.phone).length + results.filter(r => r.website).length) / (results.length * 2 || 1)) * 100)}%`, sub: "Contact detail availability" }
+              ].map((metric, idx) => (
+                <motion.div
+                  key={idx}
+                  variants={itemVariants}
+                  whileHover={{ scale: 1.02, borderColor: "#3b82f6" }}
+                  transition={{ type: "spring" as const, stiffness: 400, damping: 17 }}
+                  className="p-4 border border-[var(--color-border-custom)] rounded-[4px] bg-zinc-50 flex flex-col gap-1"
+                >
+                  <span className="text-[10px] uppercase font-mono text-zinc-500 tracking-wider">{metric.label}</span>
+                  <span className="text-2xl font-bold font-mono truncate">{metric.value}</span>
+                  <span className="text-[10px] text-zinc-400">{metric.sub}</span>
+                </motion.div>
+              ))}
+            </motion.section>
 
             {/* Filter and Search controls */}
-            <section className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <motion.section variants={itemVariants} className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="relative flex-1 max-w-md">
                 <Search className="absolute left-3 top-2.5 h-4 w-4 text-zinc-400" />
                 <input
@@ -533,32 +665,31 @@ export default function SearchResultsPage() {
                 />
               </div>
 
-              {/* Toggle Filter Bar */}
-              <button
+              <motion.button
+                {...buttonHoverTap}
                 onClick={() => setIsFilterOpen(!isFilterOpen)}
-                className={`flex items-center gap-2 py-2 px-4 border rounded-[4px] text-xs font-mono transition-all cursor-pointer ${
-                  isFilterOpen || filterCity !== "all" || filterCategory !== "all" || filterMinRating > 0 || filterHasPhone || filterHasWebsite
+                className={`flex items-center gap-2 py-2 px-4 border rounded-[4px] text-xs font-mono transition-all cursor-pointer ${isFilterOpen || filterCity !== "all" || filterCategory !== "all" || filterMinRating > 0 || filterHasPhone || filterHasWebsite
                     ? "bg-[var(--color-primary)] text-white border-[var(--color-primary)]"
                     : "bg-white text-zinc-600 border-[var(--color-border-custom)] hover:bg-zinc-50"
-                }`}
+                  }`}
               >
                 <SlidersHorizontal className="h-4.5 w-4.5" />
                 ADVANCED FILTERS
-              </button>
-            </section>
+              </motion.button>
+            </motion.section>
 
-            {/* Filter Bar Panel */}
+            {/* Filter Panel with AnimatePresence */}
             <AnimatePresence>
               {isFilterOpen && (
                 <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: "auto", opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
+                  variants={filterPanelVariants}
+                  initial="hidden"
+                  animate="visible"
+                  exit="exit"
                   className="overflow-hidden"
                 >
                   <div className="p-5 bg-zinc-50 border border-[var(--color-border-custom)] rounded-[4px] grid grid-cols-1 md:grid-cols-4 gap-6 text-xs font-mono">
-                    
-                    {/* City Select */}
+
                     <div className="flex flex-col gap-2">
                       <label className="text-zinc-500 uppercase tracking-wider font-bold">Location/City</label>
                       <select
@@ -573,7 +704,6 @@ export default function SearchResultsPage() {
                       </select>
                     </div>
 
-                    {/* Category Select */}
                     <div className="flex flex-col gap-2">
                       <label className="text-zinc-500 uppercase tracking-wider font-bold">Category</label>
                       <select
@@ -588,7 +718,6 @@ export default function SearchResultsPage() {
                       </select>
                     </div>
 
-                    {/* Rating Select */}
                     <div className="flex flex-col gap-2">
                       <label className="text-zinc-500 uppercase tracking-wider font-bold">Minimum Rating</label>
                       <select
@@ -603,7 +732,6 @@ export default function SearchResultsPage() {
                       </select>
                     </div>
 
-                    {/* Checkboxes */}
                     <div className="flex flex-col gap-3 justify-center pt-2">
                       <label className="flex items-center gap-2 cursor-pointer select-none">
                         <input
@@ -630,8 +758,8 @@ export default function SearchResultsPage() {
               )}
             </AnimatePresence>
 
-            {/* Results Table Section */}
-            <div className="border border-[var(--color-border-custom)] rounded-[4px] overflow-hidden bg-white shadow-default-custom flex flex-col">
+            {/* Results Table */}
+            <motion.div variants={itemVariants} className="border border-[var(--color-border-custom)] rounded-[4px] overflow-hidden bg-white shadow-default-custom flex flex-col">
               <div className="overflow-x-auto w-full">
                 <table className="w-full border-collapse text-left text-xs">
                   <thead className="bg-zinc-50 border-b border-[var(--color-border-custom)] text-zinc-500 font-mono sticky top-0 uppercase tracking-wider">
@@ -679,12 +807,18 @@ export default function SearchResultsPage() {
                       <th className="py-3 px-4 font-semibold w-16 text-center">Action</th>
                     </tr>
                   </thead>
-                  
+
                   <tbody className="divide-y divide-[var(--color-border-custom)]">
                     {resultsLoading ? (
                       <tr>
                         <td colSpan={9} className="py-12 text-center text-zinc-500 font-mono">
-                          <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2 text-[var(--color-primary)]" />
+                          <motion.div
+                            animate={{ rotate: 360 }}
+                            transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
+                            className="h-6 w-6 mx-auto mb-2 text-[var(--color-primary)]"
+                          >
+                            <Loader2 className="h-6 w-6" />
+                          </motion.div>
                           Reloading dataset...
                         </td>
                       </tr>
@@ -697,9 +831,14 @@ export default function SearchResultsPage() {
                       </tr>
                     ) : (
                       paginatedBusinesses.map((b, idx) => (
-                        <tr
+                        <motion.tr
                           key={b.id}
-                          className="hover:bg-zinc-50 transition-colors group cursor-pointer"
+                          custom={idx}
+                          variants={tableRowVariants}
+                          initial="hidden"
+                          animate="visible"
+                          whileHover="hover"
+                          className="group cursor-pointer"
                           onClick={() => setSelectedBusiness(b)}
                         >
                           <td className="py-3 px-4 font-mono text-zinc-400">
@@ -758,7 +897,9 @@ export default function SearchResultsPage() {
                             {b.address || "-"}
                           </td>
                           <td className="py-3 px-4 text-center">
-                            <button
+                            <motion.button
+                              whileHover={{ scale: 1.1 }}
+                              whileTap={{ scale: 0.9 }}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setSelectedBusiness(b);
@@ -766,9 +907,9 @@ export default function SearchResultsPage() {
                               className="text-zinc-400 hover:text-[var(--color-primary)] p-1 rounded-[2px]"
                             >
                               <Eye className="h-4 w-4" />
-                            </button>
+                            </motion.button>
                           </td>
-                        </tr>
+                        </motion.tr>
                       ))
                     )}
                   </tbody>
@@ -797,51 +938,54 @@ export default function SearchResultsPage() {
                     Showing {(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, filteredAndSortedBusinesses.length)} of {filteredAndSortedBusinesses.length} records
                   </div>
                   <div className="flex items-center gap-1">
-                    <button
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
                       onClick={() => setCurrentPage(currentPage - 1)}
                       disabled={currentPage === 1}
                       className="p-1 border border-[var(--color-border-custom)] bg-white hover:bg-zinc-100 disabled:opacity-40 disabled:hover:bg-white rounded-[2px] transition-colors cursor-pointer"
                     >
                       <ChevronLeft className="h-4.5 w-4.5" />
-                    </button>
+                    </motion.button>
                     <span className="px-3">
                       {currentPage} / {totalPages}
                     </span>
-                    <button
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
                       onClick={() => setCurrentPage(currentPage + 1)}
                       disabled={currentPage === totalPages}
                       className="p-1 border border-[var(--color-border-custom)] bg-white hover:bg-zinc-100 disabled:opacity-40 disabled:hover:bg-white rounded-[2px] transition-colors cursor-pointer"
                     >
                       <ChevronRight className="h-4.5 w-4.5" />
-                    </button>
+                    </motion.button>
                   </div>
                 </div>
               )}
-            </div>
+            </motion.div>
 
-          </div>
+          </motion.div>
         )}
 
       </main>
 
-      {/* DETAIL DRAWER VIEW OVERLAY */}
+      {/* DETAIL DRAWER VIEW OVERLAY with animations */}
       <AnimatePresence>
         {selectedBusiness && (
           <>
-            {/* Backdrop cover */}
             <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 0.3 }}
-              exit={{ opacity: 0 }}
+              variants={backdropVariants}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
               onClick={() => setSelectedBusiness(null)}
               className="fixed inset-0 bg-black z-40"
             />
-            {/* Drawer container panel */}
             <motion.div
-              initial={{ x: "100%" }}
-              animate={{ x: 0 }}
-              exit={{ x: "100%" }}
-              transition={{ type: "tween", duration: 0.25, ease: "easeOut" }}
+              variants={drawerVariants}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
               className="fixed right-0 top-0 bottom-0 w-full max-w-md bg-white border-l border-[var(--color-border-custom)] shadow-2xl z-50 flex flex-col"
             >
               {/* Drawer Header */}
@@ -850,18 +994,19 @@ export default function SearchResultsPage() {
                   <div className="h-2.5 w-2.5 rounded-full bg-[var(--color-primary)]" />
                   <span className="font-mono text-xs uppercase tracking-wider text-zinc-500">Business Details</span>
                 </div>
-                <button
+                <motion.button
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
                   onClick={() => setSelectedBusiness(null)}
                   className="p-1 text-zinc-400 hover:text-black rounded-[2px]"
                 >
                   <X className="h-5 w-5" />
-                </button>
+                </motion.button>
               </div>
 
               {/* Drawer Body Scroll Area */}
               <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6">
-                
-                {/* Header details */}
+
                 <div className="flex flex-col gap-2">
                   <span className="bg-zinc-100 text-zinc-800 text-[10px] font-mono font-medium py-0.5 px-2 rounded-[2px] self-start uppercase">
                     {selectedBusiness.category}
@@ -870,30 +1015,31 @@ export default function SearchResultsPage() {
                     {selectedBusiness.name}
                   </h2>
                   {selectedBusiness.rating && (
-                    <div className="flex items-center gap-1.5 mt-1">
+                    <motion.div
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="flex items-center gap-1.5 mt-1"
+                    >
                       <div className="flex items-center text-amber-500">
                         {[1, 2, 3, 4, 5].map((s) => (
                           <Star
                             key={s}
-                            className={`h-4 w-4 ${
-                              s <= Math.round(selectedBusiness.rating || 0)
+                            className={`h-4 w-4 ${s <= Math.round(selectedBusiness.rating || 0)
                                 ? "fill-amber-500 text-amber-500"
                                 : "text-zinc-200"
-                            }`}
+                              }`}
                           />
                         ))}
                       </div>
                       <span className="text-xs font-mono font-bold text-zinc-800">
                         {selectedBusiness.rating} / 5.0
                       </span>
-                    </div>
+                    </motion.div>
                   )}
                 </div>
 
-                {/* Details layout */}
                 <div className="flex flex-col gap-4 border-t border-zinc-100 pt-6">
-                  
-                  {/* Address */}
+
                   <div className="flex gap-3">
                     <MapPin className="h-5 w-5 text-zinc-400 shrink-0 mt-0.5" />
                     <div className="flex flex-col gap-1.5">
@@ -909,7 +1055,6 @@ export default function SearchResultsPage() {
                     </div>
                   </div>
 
-                  {/* Phone */}
                   <div className="flex gap-3 border-t border-zinc-50 pt-4">
                     <Phone className="h-5 w-5 text-zinc-400 shrink-0 mt-0.5" />
                     <div className="flex flex-col gap-1">
@@ -928,7 +1073,6 @@ export default function SearchResultsPage() {
                     </div>
                   </div>
 
-                  {/* Website */}
                   <div className="flex gap-3 border-t border-zinc-50 pt-4">
                     <Globe className="h-5 w-5 text-zinc-400 shrink-0 mt-0.5" />
                     <div className="flex flex-col gap-1">
@@ -949,7 +1093,6 @@ export default function SearchResultsPage() {
                     </div>
                   </div>
 
-                  {/* Metadata source URL */}
                   {selectedBusiness.sourceUrl && (
                     <div className="flex gap-3 border-t border-zinc-50 pt-4">
                       <Eye className="h-5 w-5 text-zinc-400 shrink-0 mt-0.5" />
@@ -963,7 +1106,7 @@ export default function SearchResultsPage() {
                             rel="noopener noreferrer"
                             className="text-[var(--color-primary)] hover:underline flex items-center gap-1 font-mono text-[10px]"
                           >
-                            Open Source Link
+                            Open in Maps
                             <ExternalLink className="h-3 w-3" />
                           </a>
                         </span>
@@ -971,7 +1114,6 @@ export default function SearchResultsPage() {
                     </div>
                   )}
 
-                  {/* Price Index */}
                   {selectedBusiness.price && (
                     <div className="flex gap-3 border-t border-zinc-50 pt-4">
                       <Sparkles className="h-5 w-5 text-zinc-400 shrink-0 mt-0.5" />
@@ -985,7 +1127,6 @@ export default function SearchResultsPage() {
                   )}
                 </div>
 
-                {/* Additional Raw properties gathered */}
                 {selectedBusiness.additionalData && (
                   <div className="border-t border-zinc-100 pt-6 flex flex-col gap-2">
                     <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider">Metadata Parameters</span>
@@ -1009,12 +1150,14 @@ export default function SearchResultsPage() {
                     <ExternalLink className="h-3.5 w-3.5" />
                   </a>
                 )}
-                <button
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
                   onClick={() => setSelectedBusiness(null)}
                   className="flex-1 py-2.5 border border-[var(--color-border-custom)] bg-white text-zinc-700 text-xs font-mono rounded-[2px] hover:bg-zinc-100 transition-colors cursor-pointer"
                 >
                   CLOSE PANEL
-                </button>
+                </motion.button>
               </div>
 
             </motion.div>
@@ -1023,11 +1166,16 @@ export default function SearchResultsPage() {
       </AnimatePresence>
 
       {/* Footer bar */}
-      <footer className="w-full py-6 px-6 text-center border-t border-[var(--color-border-custom)] bg-zinc-50 mt-auto">
+      <motion.footer
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.3, duration: 0.5 }}
+        className="w-full py-6 px-6 text-center border-t border-[var(--color-border-custom)] bg-zinc-50 mt-auto"
+      >
         <p className="text-xs text-zinc-500 font-mono">
           AETHER SC-DATAENGINE // COMPLIANCE AND rate limiting BOUNDARIES APPLIED
         </p>
-      </footer>
+      </motion.footer>
     </div>
   );
 }

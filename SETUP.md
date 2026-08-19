@@ -1,120 +1,10 @@
-# DataScrapper — Setup Guide
+# Setup Guide
 
 ## Prerequisites
 
-- **Node.js 18+** installed
-- **Python 3.10+** installed
-- PowerShell (Windows) or any terminal (Mac/Linux)
-
----
-
-## Step 1: Install Node Dependencies
-
-Open a terminal in the project root:
-
-```powershell
-cd d:\Websites\datascrapper-master
-npm install
-```
-
----
-
-## Step 2: Generate Prisma Client
-
-```powershell
-npx prisma generate
-```
-
-> This must be run after `npm install` and any time the Prisma schema changes.
-
----
-
-## Step 3: Install Python Dependencies
-
-Open a terminal in the scraper-service directory:
-
-```powershell
-cd d:\Websites\datascrapper-master\scraper-service
-pip install -r requirements.txt
-```
-
----
-
-## Step 4: Start the Python Scraper Service (Port 8000)
-
-In the same scraper-service terminal:
-
-```powershell
-python -m uvicorn main:app --reload --port 8000
-```
-
-You should see:
-
-```
-INFO:     Uvicorn running on http://127.0.0.1:8000
-INFO:     Started reloader process
-INFO:     Application startup complete.
-```
-
-Leave this terminal running.
-
----
-
-## Step 5: Start the Next.js Dev Server (Port 3000)
-
-Open a **second terminal** in the project root:
-
-```powershell
-cd d:\Websites\datascrapper-master
-npm run dev
-```
-
-You should see:
-
-```
-▲ Next.js 16.3.1 (Turbopack)
-- Local:         http://localhost:3000
-✓ Ready
-```
-
-Leave this terminal running.
-
----
-
-## Step 6: Open the App
-
-Open your browser and go to **http://localhost:3000**
-
----
-
-## Step 7: Test a Query
-
-Type a natural-language query in the search box, for example:
-
-- `restaurants in Lahore`
-- `software houses in Islamabad`
-- `hotels in Karachi with phone numbers`
-- `dentists in Rawalpindi`
-
-Click **EXTRACT DATA** and wait for the results to load.
-
----
-
-## Environment Configuration (Optional)
-
-No `.env` file is required to get started. Defaults:
-
-| Variable | Default | Description |
-|---|---|---|
-| `DATABASE_URL` | *(not set)* | PostgreSQL connection string. If omitted, uses local JSON file at `.data/db.json` |
-| `PYTHON_SCRAPER_URL` | `http://localhost:8000` | URL of the Python scraper service |
-
-To configure a database, create a `.env` file in the project root:
-
-```
-DATABASE_URL=postgresql://postgres:password@db.supabase.co:5432/postgres
-PYTHON_SCRAPER_URL=http://localhost:8000
-```
+- **Node.js** 18+ (tested with Next.js 16)
+- **Python** 3.11+ 
+- **npm** or **yarn**
 
 ---
 
@@ -123,24 +13,195 @@ PYTHON_SCRAPER_URL=http://localhost:8000
 ```
 datascrapper-master/
 ├── app/                    # Next.js frontend + API routes
-├── components/             # React UI components
-├── lib/                    # TypeScript utilities (query parser, DB, exporter)
-├── prisma/                 # Database schema
-├── scraper-service/        # Python FastAPI scraping engine
-│   ├── main.py             # FastAPI entry point
-│   └── scraper/            # Scraping modules (engine, sources, normalizer)
-├── scraper.py              # Original standalone Python scraper (reference)
-└── SETUP.md                # This file
+├── lib/                    # Shared utilities (DB, query parser, exporter)
+├── components/             # React components
+├── prisma/                 # Prisma schema (PostgreSQL)
+├── python-engine/          # Python Data Engine (FastAPI + Google Places + Gemini)
+│   ├── server.py           # FastAPI server entry point
+│   ├── main.py             # CLI entry point (standalone use)
+│   ├── config.py           # Pydantic settings (reads python-engine/.env)
+│   ├── ai/                 # Gemini NLP query parser
+│   ├── engine/             # Search engine, normalizer, deduplicator
+│   ├── sources/            # Google Places API client
+│   ├── models/             # Data models (PlaceRecord)
+│   ├── pakistan/           # Pakistan-specific location resolution
+│   └── exporters/          # Excel/PDF export (standalone CLI use)
+├── .env.example            # Next.js environment template
+└── python-engine/.env.example  # Python engine environment template
 ```
+
+---
+
+## 1. Install Dependencies
+
+### Node.js (frontend + API)
+
+```bash
+npm install
+```
+
+### Python (data engine)
+
+```bash
+cd python-engine
+python -m venv .venv
+.venv\Scripts\activate        # Windows
+# source .venv/bin/activate   # macOS/Linux
+pip install -r requirements.txt
+```
+
+---
+
+## 2. API Keys
+
+The project uses **two separate `.env` files** — one for the Next.js app, one for the Python engine. API keys live only in the Python engine and are never exposed to the browser.
+
+### Python Engine (`python-engine/.env`)
+
+Copy the template and fill in your keys:
+
+```bash
+cd python-engine
+cp .env.example .env
+```
+
+| Variable | Required | Description |
+|---|---|---|
+| `GEMINI_API_KEY` | **Yes** | Google AI Studio API key for Gemini NLP. Get one at [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
+| `GOOGLE_MAPS_API_KEY` | **Yes** | Google Maps Platform API key with **Places API (New)** enabled. Get one at [console.cloud.google.com](https://console.cloud.google.com/apis/credentials) |
+| `GEMINI_MODEL` | No | Defaults to `gemini-2.5-flash`. Change if needed. |
+| `REQUEST_TIMEOUT` | No | HTTP timeout in seconds for Google Places calls (default: `20`) |
+| `MAX_SEARCH_VARIANTS` | No | Max search query variants the engine generates (default: `4`) |
+| `DEBUG` | No | Set to `true` for verbose logging (default: `false`) |
+
+### Next.js App (`.env` at project root)
+
+Copy the template:
+
+```bash
+cp .env.example .env
+```
+
+| Variable | Required | Description |
+|---|---|---|
+| `DATABASE_URL` | No | PostgreSQL connection string (e.g. Supabase). If omitted, the app falls back to a local JSON file at `.data/db.json` |
+| `PYTHON_ENGINE_URL` | **Yes** | URL of the running Python engine. Default: `http://localhost:8000` |
+
+### Google Maps API Key Setup
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a project (or select an existing one)
+3. Enable the **Places API (New)** under APIs & Services > Library
+4. Create an API key under APIs & Services > Credentials
+5. (Recommended) Restrict the key to the Places API only
+6. Paste the key into `python-engine/.env` as `GOOGLE_MAPS_API_KEY`
+
+---
+
+## 3. Database Setup (Optional)
+
+The app works **without a database** — it falls back to a JSON file at `.data/db.json`.
+
+To use PostgreSQL (e.g. Supabase):
+
+1. Set `DATABASE_URL` in your root `.env`
+2. Generate the Prisma client:
+   ```bash
+   npx prisma generate
+   ```
+3. Push the schema to your database:
+   ```bash
+   npx prisma db push
+   ```
+
+---
+
+## 4. Start the Application
+
+You need **two processes** running simultaneously:
+
+### Terminal 1 — Python Data Engine (port 8000)
+
+```bash
+cd python-engine
+.venv\Scripts\activate        # Windows
+# source .venv/bin/activate   # macOS/Linux
+uvicorn server:app --reload --port 8000
+```
+
+Or use the npm shortcut (Windows only):
+
+```bash
+npm run dev:engine
+```
+
+Verify it's running:
+
+```bash
+curl http://localhost:8000/health
+# → {"status":"ok","service":"pakistan-data-engine"}
+```
+
+### Terminal 2 — Next.js App (port 3000)
+
+```bash
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+---
+
+## 5. Usage
+
+1. Open the app at `http://localhost:3000`
+2. Type a natural-language search query, e.g.:
+   - *"Find restaurants in Lahore"*
+   - *"Hotels near Faisal Mosque Karachi"*
+   - *"Beauty salons in Gujarat"*
+3. The app sends your query to the Python engine, which:
+   - Parses intent using **Gemini NLP** (handles English, Urdu, and Roman Urdu)
+   - Searches **Google Places API (New)** with smart query variants
+   - Normalizes phone numbers, addresses, and deduplicates results
+4. Results appear in a searchable, filterable table
+5. Export to **CSV**, **Excel**, or **PDF**
+
+---
+
+## 6. Using the Python Engine Standalone (CLI)
+
+The engine can also be run directly from the terminal without the Next.js frontend:
+
+```bash
+cd python-engine
+.venv\Scripts\activate
+python main.py
+```
+
+This launches an interactive CLI where you can enter queries and export results directly.
 
 ---
 
 ## Troubleshooting
 
-| Issue | Fix |
+| Problem | Fix |
 |---|---|
-| `Cannot find module '.prisma/client/default'` | Run `npx prisma generate` |
-| API returns 500 on search | Make sure Python scraper is running on port 8000 |
-| `ModuleNotFoundError: No module named 'fastapi'` | Run `pip install -r requirements.txt` in `scraper-service/` |
-| Turbopack cache error | Delete `.next` folder and restart `npm run dev` |
-| Hydration mismatch warning | Browser extension injecting attributes — harmless, suppressed on `<body>` |
+| `Could not connect to the data engine` | Make sure the Python engine is running on port 8000 |
+| `GEMINI_API_KEY` validation error | Check that `python-engine/.env` exists and has your key |
+| `GOOGLE_MAPS_API_KEY` validation error | Same as above — both keys must be in `python-engine/.env` |
+| No phone numbers in results | Ensure **Places API (New)** is enabled (not the legacy Places API) |
+| Prisma client errors | Run `npx prisma generate` |
+| Port 8000 in use | Change the port in both the engine startup command and `PYTHON_ENGINE_URL` in your root `.env` |
+
+---
+
+## Environment Files Summary
+
+```
+datascrapper-master/
+├── .env                        # Next.js — DATABASE_URL, PYTHON_ENGINE_URL
+└── python-engine/
+    └── .env                    # Python — GEMINI_API_KEY, GOOGLE_MAPS_API_KEY
+```
+
+**API keys are never exposed to the browser.** They are loaded server-side only by the Python engine's pydantic-settings.
