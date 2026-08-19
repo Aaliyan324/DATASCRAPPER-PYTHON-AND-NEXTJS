@@ -1,0 +1,76 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum JobStatus {
+  PENDING
+  PARSING
+  SCRAPING
+  COMPLETED
+  ERROR
+  QUEUED
+  FAILED
+}
+
+model SearchJob {
+  id              String      @id @default(cuid())
+  originalCommand String
+  parsedQuery     String?     // JSON string of ParsedQuery
+  pythonJobId     String?     // Maps to Python scraper service job ID
+  status          JobStatus   @default(PENDING)
+  totalResults    Int         @default(0)
+  progress        Int         @default(0)
+  currentStage    String?
+  recordsFound    Int         @default(0)
+  createdAt       DateTime    @default(now())
+  startedAt       DateTime?
+  completedAt     DateTime?
+  error           String?
+  results         JobResult[]
+}
+
+model Business {
+  id             String      @id @default(cuid())
+  name           String
+  category       String
+  address        String?
+  area           String?
+  city           String?
+  country        String?
+  phone          String?
+  email          String?
+  website        String?
+  rating         Float?
+  reviewCount    Int?
+  price          String?
+  openingHours   String?
+  description    String?
+  source         String
+  sourceUrl      String?
+  latitude       Float?
+  longitude      Float?
+  additionalData Json?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  jobs           JobResult[]
+
+  @@index([name])
+  @@index([category])
+  @@index([city])
+}
+
+model JobResult {
+  id         String    @id @default(cuid())
+  jobId      String
+  businessId String
+  job        SearchJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  business   Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, businessId])
+  @@index([jobId])
+  @@index([businessId])
+}
