@@ -164,9 +164,6 @@ const CITIES: CityInfo[] = [
   { city: "Sialkot", country: "Pakistan", aliases: ["sialkot", "سیالکوٹ"] },
   { city: "Peshawar", country: "Pakistan", aliases: ["peshawar", "پشاور"] },
   { city: "Multan", country: "Pakistan", aliases: ["multan", "ملتان"] },
-  { city: "Mumbai", country: "India", aliases: ["mumbai", "bombay"] },
-  { city: "Delhi", country: "India", aliases: ["delhi", "new delhi"] },
-  { city: "Gujarat", country: "India", aliases: ["gujarat"] },
   { city: "Hyderabad", country: "Pakistan", aliases: ["hyderabad"] },
   { city: "Quetta", country: "Pakistan", aliases: ["quetta"] },
   { city: "Abbottabad", country: "Pakistan", aliases: ["abbottabad"] },
@@ -174,6 +171,60 @@ const CITIES: CityInfo[] = [
   { city: "Bahawalpur", country: "Pakistan", aliases: ["bahawalpur"] },
   { city: "Sargodha", country: "Pakistan", aliases: ["sargodha"] },
   { city: "Sukkur", country: "Pakistan", aliases: ["sukkur"] },
+  // Additional Pakistan cities (previously missing)
+  { city: "Sahiwal", country: "Pakistan", aliases: ["sahiwal", "ساہیوال"] },
+  { city: "Okara", country: "Pakistan", aliases: ["okara", "اوکاڑہ"] },
+  { city: "Kasur", country: "Pakistan", aliases: ["kasur", "قصور"] },
+  { city: "Jhelum", country: "Pakistan", aliases: ["jhelum", "جہلم"] },
+  { city: "Chakwal", country: "Pakistan", aliases: ["chakwal"] },
+  { city: "Attock", country: "Pakistan", aliases: ["attock"] },
+  { city: "Sheikhupura", country: "Pakistan", aliases: ["sheikhupura", "شیخوپورہ"] },
+  { city: "Rahim Yar Khan", country: "Pakistan", aliases: ["rahim yar khan"] },
+  { city: "Mandi Bahauddin", country: "Pakistan", aliases: ["mandi bahauddin"] },
+  { city: "Dera Ghazi Khan", country: "Pakistan", aliases: ["dera ghazi khan", "dg khan"] },
+  { city: "Muzaffargarh", country: "Pakistan", aliases: ["muzaffargarh"] },
+  { city: "Vehari", country: "Pakistan", aliases: ["vehari"] },
+  { city: "Khanewal", country: "Pakistan", aliases: ["khanewal"] },
+  { city: "Jhang", country: "Pakistan", aliases: ["jhang"] },
+  { city: "Toba Tek Singh", country: "Pakistan", aliases: ["toba tek singh"] },
+  { city: "Nankana Sahib", country: "Pakistan", aliases: ["nankana sahib"] },
+  { city: "Hafizabad", country: "Pakistan", aliases: ["hafizabad"] },
+  { city: "Mianwali", country: "Pakistan", aliases: ["mianwali"] },
+  { city: "Pakpattan", country: "Pakistan", aliases: ["pakpattan"] },
+  { city: "Narowal", country: "Pakistan", aliases: ["narowal"] },
+  { city: "Bahawalnagar", country: "Pakistan", aliases: ["bahawalnagar"] },
+  { city: "Layyah", country: "Pakistan", aliases: ["layyah"] },
+  { city: "Rajanpur", country: "Pakistan", aliases: ["rajanpur"] },
+  { city: "Chiniot", country: "Pakistan", aliases: ["chiniot"] },
+  { city: "Bhakkar", country: "Pakistan", aliases: ["bhakkar"] },
+  { city: "Khushab", country: "Pakistan", aliases: ["khushab"] },
+  { city: "Lodhran", country: "Pakistan", aliases: ["lodhran"] },
+  { city: "Larkana", country: "Pakistan", aliases: ["larkana"] },
+  { city: "Mirpur Khas", country: "Pakistan", aliases: ["mirpur khas"] },
+  { city: "Nawabshah", country: "Pakistan", aliases: ["nawabshah"] },
+  { city: "Thatta", country: "Pakistan", aliases: ["thatta"] },
+  { city: "Badin", country: "Pakistan", aliases: ["badin"] },
+  { city: "Mardan", country: "Pakistan", aliases: ["mardan"] },
+  { city: "Mansehra", country: "Pakistan", aliases: ["mansehra"] },
+  { city: "Kohat", country: "Pakistan", aliases: ["kohat"] },
+  { city: "Nowshera", country: "Pakistan", aliases: ["nowshera"] },
+  { city: "Haripur", country: "Pakistan", aliases: ["haripur"] },
+  { city: "Dera Ismail Khan", country: "Pakistan", aliases: ["dera ismail khan", "di khan"] },
+  { city: "Gwadar", country: "Pakistan", aliases: ["gwadar"] },
+  { city: "Gilgit", country: "Pakistan", aliases: ["gilgit"] },
+  { city: "Skardu", country: "Pakistan", aliases: ["skardu"] },
+  { city: "Muzaffarabad", country: "Pakistan", aliases: ["muzaffarabad"] },
+  { city: "Mirpur", country: "Pakistan", aliases: ["mirpur"] },
+  // Common tehsils/towns
+  { city: "Chichawatni", country: "Pakistan", aliases: ["chichawatni"] },
+  { city: "Depalpur", country: "Pakistan", aliases: ["depalpur"] },
+  { city: "Pattoki", country: "Pakistan", aliases: ["pattoki"] },
+  { city: "Taxila", country: "Pakistan", aliases: ["taxila"] },
+  { city: "Burewala", country: "Pakistan", aliases: ["burewala"] },
+  // India (for disambiguation)
+  { city: "Mumbai", country: "India", aliases: ["mumbai", "bombay"] },
+  { city: "Delhi", country: "India", aliases: ["delhi", "new delhi"] },
+  { city: "Gujarat", country: "India", aliases: ["gujarat"] },
 ];
 
 // ============================================================
@@ -221,6 +272,101 @@ const UNSUPPORTED_PATTERNS = [
   "write", "code", "game", "poem", "essay", "make a", "how to build",
   "create a", "build me", "program", "script", "function",
 ];
+
+// ============================================================
+// LOCATION EXTRACTION (fallback for cities not in the hardcoded list)
+// ============================================================
+
+// English and Roman Urdu prepositions that introduce a location.
+const LOCATION_PREPOSITIONS = [
+  "inside", "around", "within",   // check these first (longer)
+  "near", "in", "at", "on",
+  // Roman Urdu
+  "main", "mein", "me",
+  "ke qareeb", "ke paas", "ke nazdeek",
+  "qareeb", "nazdeek", "paas",
+  "andar",
+];
+
+// Roman Urdu filler/verb words to strip from the tail of extracted locations.
+const ROMAN_URDU_NOISE = [
+  "dhundo", "dhoondo", "dhoondho", "nikal", "nikaal",
+  "batao", "batado", "chahiye", "chaheye", "karo",
+  "do", "dena", "bana", "banao", "chahiye",
+];
+
+/**
+ * Extract a raw location string from a natural-language query.
+ *
+ * Handles patterns like:
+ *   "hotels in okara"                  → "okara"
+ *   "restaurants near sahiwal bypass"  → "sahiwal bypass"
+ *   "sahiwal main restaurants"         → "sahiwal"
+ *   "gulberg greens mein cafes"        → "gulberg greens"
+ *   "dha phase 6 lahore mein"          → "dha phase 6 lahore"
+ */
+function extractLocationFromQuery(cmd: string): string | null {
+  // Strategy 1: find a preposition and take the text after it.
+  for (const prep of LOCATION_PREPOSITIONS) {
+    const idx = cmd.indexOf(` ${prep} `);
+    if (idx !== -1) {
+      const after = cmd.slice(idx + prep.length + 2).trim();
+      const cleaned = stripCategoryAndNoise(after);
+      if (cleaned) return cleaned;
+    }
+  }
+
+  // Strategy 2: preposition at the very end (Roman Urdu: "okara main").
+  for (const prep of LOCATION_PREPOSITIONS) {
+    if (cmd.endsWith(` ${prep}`)) {
+      const before = cmd.slice(0, -(prep.length + 1)).trim();
+      const cleaned = stripCategoryAndNoise(before);
+      if (cleaned) return cleaned;
+    }
+  }
+
+  // Strategy 3: comma-separated location at end  ("restaurants, okara").
+  const commaIdx = cmd.lastIndexOf(",");
+  if (commaIdx !== -1) {
+    const after = cmd.slice(commaIdx + 1).trim();
+    const cleaned = stripCategoryAndNoise(after);
+    if (cleaned && cleaned.length > 1) return cleaned;
+  }
+
+  return null;
+}
+
+/**
+ * Remove category words and Roman Urdu filler noise from a candidate
+ * location string, returning just the geographic portion.
+ */
+function stripCategoryAndNoise(text: string): string {
+  let result = text;
+
+  // Remove known category words.
+  for (const synonyms of Object.values(CATEGORY_MAP)) {
+    for (const syn of synonyms) {
+      const re = new RegExp(`\\b${escapeRegex(syn.toLowerCase())}\\b`, "gi");
+      result = result.replace(re, "");
+    }
+  }
+
+  // Remove Roman Urdu filler words.
+  for (const word of ROMAN_URDU_NOISE) {
+    const re = new RegExp(`\\b${escapeRegex(word)}\\b`, "gi");
+    result = result.replace(re, "");
+  }
+
+  // Remove count words (e.g. "50", "100").
+  result = result.replace(/\b\d+\b/g, "");
+
+  // Clean up whitespace.
+  return result.replace(/[,\s]+/g, " ").trim();
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 // ============================================================
 // MAIN PARSER
@@ -281,7 +427,19 @@ export function parseQuery(command: string): SearchQuery {
     if (city) break;
   }
 
-  // 4. Clarification flow
+  // 3b. Fallback: extract location from preposition patterns for the Python engine.
+  //     The Python engine has a much larger location database + geocoding, so any
+  //     location text we find should be passed through rather than rejected.
+  if (!city) {
+    const extractedLocation = extractLocationFromQuery(cmd);
+    if (extractedLocation) {
+      city = extractedLocation;
+      country = "Pakistan";
+      queryLoc = `${extractedLocation}, Pakistan`;
+    }
+  }
+
+  // 4. Clarification flow — only ask when we genuinely have no location.
   if (category && !queryLoc) {
     return {
       intent: "clarification_required",

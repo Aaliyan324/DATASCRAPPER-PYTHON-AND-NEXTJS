@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime, timezone
 
@@ -8,6 +9,7 @@ import requests
 from ai.schemas import SearchPlan
 from config import settings
 
+logger = logging.getLogger(__name__)
 
 BASE_URL = "https://places.googleapis.com/v1/places:searchText"
 
@@ -29,11 +31,11 @@ class GooglePlacesClient:
             "places.nationalPhoneNumber",
             "places.internationalPhoneNumber",
             "places.websiteUri",
+            # Always request location for geographic filtering.
+            "places.location",
         }
 
         requested = set(plan.fields)
-        if "latitude" in requested or "longitude" in requested:
-            fields.add("places.location")
         if "rating" in requested:
             fields.add("places.rating")
         if "review_count" in requested:
@@ -57,6 +59,24 @@ class GooglePlacesClient:
             "regionCode": "PK",
             "pageSize": 20,
         }
+
+        # Add location bias if we have coordinates.
+        loc = plan.location
+        if loc.has_coordinates():
+            radius = loc.effective_radius()
+            body["locationBias"] = {
+                "circle": {
+                    "center": {
+                        "latitude": loc.latitude,
+                        "longitude": loc.longitude,
+                    },
+                    "radius": float(min(radius, 50000)),  # API max 50km
+                }
+            }
+            logger.debug(
+                "Location bias: (%.4f, %.4f) radius=%dm",
+                loc.latitude, loc.longitude, radius,
+            )
 
         results = []
         page_token = None

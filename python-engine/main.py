@@ -23,6 +23,12 @@ def print_plan(plan):
     console.print(Panel.fit(
         f"[bold]Category:[/bold] {plan.category}\n"
         f"[bold]Location:[/bold] {plan.location.display_name()}\n"
+        f"[bold]Location Type:[/bold] {plan.location.location_type or 'N/A'}\n"
+        f"[bold]Preposition:[/bold] {plan.location.preposition.value}\n"
+        f"[bold]Coordinates:[/bold] "
+        f"{f'{plan.location.latitude:.4f}, {plan.location.longitude:.4f}' if plan.location.has_coordinates() else 'Not resolved'}\n"
+        f"[bold]Confidence:[/bold] {plan.location.confidence:.2f}\n"
+        f"[bold]Search Radius:[/bold] {plan.location.effective_radius()}m\n"
         f"[bold]Filters:[/bold] {', '.join(f'{k}={v}' for k, v in plan.filters.items()) or 'None'}\n"
         f"[bold]Fields:[/bold] {', '.join(plan.fields)}\n"
         f"[bold]Requested count:[/bold] {plan.requested_result_count or 'No limit'}\n"
@@ -50,13 +56,18 @@ def show_results(records, stats):
     table.add_column("Area", max_width=18)
     table.add_column("Phone", max_width=18)
     table.add_column("Website", max_width=28)
+    table.add_column("Dist(km)", max_width=8)
+    table.add_column("Score", max_width=6)
 
     limit = 30
     for i, r in enumerate(records[:limit], 1):
+        dist = f"{r.distance_km:.1f}" if r.distance_km is not None else "—"
+        score = f"{r.location_match_score:.2f}" if r.location_match_score is not None else "—"
         table.add_row(
             str(i), r.business_name or "N/A", r.category or "N/A",
             r.area or "N/A", r.phone or "Not publicly available",
             r.website or "Not publicly available",
+            dist, score,
         )
     console.print(table)
     if len(records) > limit:
@@ -101,6 +112,31 @@ def run(query: str):
     console.print("\n[bold]Searching Google Places...[/bold]")
     engine = SearchEngine()
     records, stats = engine.search(plan)
+
+    # Show debug info.
+    if plan.debug_info and settings.debug:
+        debug = plan.debug_info
+        gf = debug.get("geographic_filtering", {})
+        console.print(Panel.fit(
+            f"[bold]Location:[/bold] {debug['location']['name']} "
+            f"(type: {debug['location']['type'] or 'N/A'})\n"
+            f"[bold]Parent Geography:[/bold] "
+            f"Province: {debug['location']['province'] or '—'}, "
+            f"District: {debug['location']['district'] or '—'}, "
+            f"City: {debug['location']['city'] or '—'}\n"
+            f"[bold]Coordinates:[/bold] "
+            f"{debug['location']['coordinates'] or 'Not resolved'}\n"
+            f"[bold]Confidence:[/bold] {debug['location']['confidence']:.2f}\n"
+            f"[bold]Search Radius:[/bold] {debug['location']['search_radius_m']}m\n"
+            f"[bold]Search Queries:[/bold]\n  " +
+            "\n  ".join(debug.get('search_queries', [])) +
+            f"\n[bold]Geographic Filtering:[/bold]\n"
+            f"  Exact matches: {gf.get('exact_matches', 0)}\n"
+            f"  Nearby matches: {gf.get('nearby_matches', 0)}\n"
+            f"  Rejected results: {gf.get('rejected_results', 0)}",
+            title="Debug Info",
+            border_style="dim",
+        ))
 
     console.print("\n[bold]Cleaning data...[/bold]")
     console.print(

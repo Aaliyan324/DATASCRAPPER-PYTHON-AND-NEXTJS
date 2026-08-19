@@ -26,12 +26,15 @@ import {
   ChevronLeft,
   ChevronRight,
   Eye,
-  Settings,
-  Database
+  Database,
+  SidebarClose,
+  SidebarOpen,
+  Filter,
+  Layers,
+  BarChart3,
 } from "lucide-react";
-import { GradientBorder } from "@/components/gradient-border";
 import { exportToExcel, exportToPDF, exportToCSV } from "@/lib/exporter";
-import { SearchJob, Business, JobStatus } from "@/lib/db";
+import { SearchJob, Business } from "@/lib/db";
 import { SearchQuery } from "@/lib/query-parser";
 
 interface ParsedQueryData {
@@ -53,24 +56,24 @@ const STAGES = [
   "Finalizing results"
 ];
 
-// --- Animation Variants ---
+// Animation Variants
 const containerVariants = {
   hidden: { opacity: 0 },
   visible: {
     opacity: 1,
     transition: {
-      staggerChildren: 0.08,
+      staggerChildren: 0.06,
       delayChildren: 0.1,
     },
   },
 };
 
 const itemVariants = {
-  hidden: { y: 16, opacity: 0 },
+  hidden: { y: 20, opacity: 0 },
   visible: {
     y: 0,
     opacity: 1,
-    transition: { type: "spring" as const, stiffness: 300, damping: 24 },
+    transition: { type: "spring", stiffness: 300, damping: 24 },
   },
 };
 
@@ -79,35 +82,7 @@ const fadeInUp = {
   visible: {
     y: 0,
     opacity: 1,
-    transition: { type: "spring" as const, stiffness: 350, damping: 25 },
-  },
-};
-
-const buttonHoverTap = {
-  whileHover: { scale: 1.03, transition: { type: "spring" as const, stiffness: 400, damping: 17 } },
-  whileTap: { scale: 0.95 },
-};
-
-const cardHover = {
-  whileHover: {
-    scale: 1.02,
-    borderColor: "#3b82f6",
-    boxShadow: "0 8px 30px rgba(0,0,0,0.06)",
-    transition: { type: "spring" as const, stiffness: 400, damping: 17 },
-  },
-  whileTap: { scale: 0.98 },
-};
-
-const tableRowVariants = {
-  hidden: { opacity: 0, x: -8 },
-  visible: (i: number) => ({
-    opacity: 1,
-    x: 0,
-    transition: { delay: i * 0.03, type: "spring" as const, stiffness: 350, damping: 25 },
-  }),
-  hover: {
-    backgroundColor: "#f9fafb",
-    transition: { duration: 0.15 },
+    transition: { type: "spring", stiffness: 350, damping: 25 },
   },
 };
 
@@ -115,17 +90,17 @@ const drawerVariants = {
   hidden: { x: "100%" },
   visible: {
     x: 0,
-    transition: { type: "tween" as const, duration: 0.3, ease: "easeOut" as const },
+    transition: { type: "tween", duration: 0.3, ease: "easeOut" },
   },
   exit: {
     x: "100%",
-    transition: { type: "tween" as const, duration: 0.25, ease: "easeIn" as const },
+    transition: { type: "tween", duration: 0.25, ease: "easeIn" },
   },
 };
 
 const backdropVariants = {
   hidden: { opacity: 0 },
-  visible: { opacity: 0.3 },
+  visible: { opacity: 0.5 },
   exit: { opacity: 0 },
 };
 
@@ -134,16 +109,14 @@ const filterPanelVariants = {
   visible: {
     height: "auto",
     opacity: 1,
-    transition: { type: "spring" as const, stiffness: 400, damping: 30 },
+    transition: { type: "spring", stiffness: 400, damping: 30 },
   },
   exit: {
     height: 0,
     opacity: 0,
-    transition: { duration: 0.2, ease: "easeInOut" as const },
+    transition: { duration: 0.2, ease: "easeInOut" },
   },
 };
-
-// ----------------------------------------------------------------------
 
 export default function SearchResultsPage() {
   const params = useParams();
@@ -155,6 +128,7 @@ export default function SearchResultsPage() {
   const [loading, setLoading] = useState(true);
   const [resultsLoading, setResultsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   // Table Controls
   const [searchTerm, setSearchTerm] = useState("");
@@ -384,95 +358,193 @@ export default function SearchResultsPage() {
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-white text-black antialiased font-sans">
-      {/* Header bar with animation */}
-      <motion.header
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, ease: "easeOut" }}
-        className="w-full flex items-center justify-between py-6 px-8 border-b border-[var(--color-border-custom)]"
-      >
-        <motion.button
-          whileHover={{ scale: 1.03 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={() => router.push("/")}
-          className="flex items-center gap-2 text-xs font-mono text-zinc-500 hover:text-black transition-all cursor-pointer"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          BACK TO COMMAND CENTER
-        </motion.button>
-        <div className="flex items-center gap-2">
+    <div className="flex h-screen w-full bg-[#0f1117] text-[#e2e8f0] font-sans antialiased overflow-hidden relative">
+      {/* Background Glow Effects */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
+        <div className="absolute -top-40 -right-40 w-72 md:w-96 h-72 md:h-96 bg-purple-600/15 rounded-full blur-3xl" />
+        <div className="absolute bottom-10 left-10 w-72 md:w-96 h-72 md:h-96 bg-blue-600/15 rounded-full blur-3xl" />
+      </div>
+
+      {/* Mobile Drawer Backdrop */}
+      <AnimatePresence>
+        {sidebarOpen && (
           <motion.div
-            animate={{ scale: [1, 1.2, 1] }}
-            transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
-            className={`h-2 w-2 rounded-full ${job?.status === "COMPLETED" ? "bg-emerald-500" :
-                job?.status === "ERROR" ? "bg-red-500" : "bg-amber-500"
-              }`}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setSidebarOpen(false)}
+            className="fixed inset-0 bg-black/60 z-30 md:hidden backdrop-blur-sm"
           />
-          <span className="text-xs font-mono text-zinc-500 uppercase tracking-widest">
-            {job?.status || "INITIALIZING"}
-          </span>
-        </div>
-      </motion.header>
+        )}
+      </AnimatePresence>
 
-      {/* Main Panel Content */}
-      <main className="flex-1 w-full max-w-[1400px] mx-auto px-6 py-8 flex flex-col gap-8">
+      {/* LEFT SIDEBAR */}
+      <aside
+        className={`fixed md:relative z-40 h-full bg-[#161922] border-r border-slate-800/80 flex flex-col justify-between shrink-0 transition-all duration-300 ease-in-out ${
+          sidebarOpen
+            ? "translate-x-0 w-[260px] sm:w-[280px]"
+            : "-translate-x-full md:translate-x-0 md:w-0 md:opacity-0 overflow-hidden"
+        }`}
+      >
+        <div className="flex flex-col h-full p-4 gap-4 overflow-hidden">
+          {/* Brand Header */}
+          <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+            <div className="flex items-center gap-2.5">
+              <div className="h-7 w-7 rounded-lg bg-purple-600 flex items-center justify-center text-white font-bold text-xs shadow-md">
+                A
+              </div>
+              <span className="font-semibold text-sm tracking-wide text-slate-100">
+                Aether AI
+              </span>
+            </div>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              className="p-1.5 rounded-md text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+            >
+              <SidebarClose className="h-4 w-4" />
+            </button>
+          </div>
 
-        {/* LOADING & PROGRESS TRACKER with animations */}
-        {loading && (
-          <motion.section
-            variants={containerVariants}
-            initial="hidden"
-            animate="visible"
-            className="w-full py-12 flex flex-col gap-8"
-          >
-            <motion.div variants={itemVariants} className="max-w-6xl mx-auto text-center flex flex-col gap-4 px-4">
-              <h2 className="text-3xl md:text-4xl font-light tracking-tight">Processing command query...</h2>
-              <p className="text-sm md:text-base font-mono text-[var(--color-primary)] break-words overflow-hidden">
-                "{job?.originalCommand}"
+          {/* Job Info */}
+          <div className="flex-1 overflow-y-auto flex flex-col gap-3 pr-1">
+            <div className="flex flex-col gap-1.5 bg-[#1e2330] rounded-lg p-3 border border-slate-800">
+              <span className="text-[10px] font-mono text-purple-400 uppercase tracking-wider">
+                Current Job
+              </span>
+              <p className="text-xs text-slate-300 font-medium truncate">
+                {job?.originalCommand || "Loading..."}
               </p>
-            </motion.div>
+              <div className="flex items-center gap-2 mt-1">
+                <div className={`h-2 w-2 rounded-full ${
+                  job?.status === "COMPLETED" ? "bg-emerald-500" :
+                  job?.status === "ERROR" ? "bg-red-500" : "bg-amber-500 animate-pulse"
+                }`} />
+                <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">
+                  {job?.status || "INITIALIZING"}
+                </span>
+                <span className="text-[10px] font-mono text-slate-500">·</span>
+                <span className="text-[10px] font-mono text-slate-500">
+                  {job?.totalResults || 0} records
+                </span>
+              </div>
+            </div>
 
-            <motion.div variants={itemVariants} className="max-w-6xl mx-auto w-full px-4">
-              <GradientBorder innerClassName="p-8 md:p-10 flex flex-col gap-6">
+            <span className="text-[11px] font-mono text-slate-400 uppercase tracking-wider px-1 mt-2">
+              Query Parameters
+            </span>
+            {decodedQuery?.query && (
+              <div className="flex flex-col gap-2 bg-[#1e2330] rounded-lg p-3 border border-slate-800">
+                <div className="flex items-center gap-2 text-xs">
+                  <MapPin className="h-3 w-3 text-purple-400 shrink-0" />
+                  <span className="text-slate-300 font-mono">
+                    {decodedQuery.query.location.query || decodedQuery.query.location.city || "Pakistan"}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 text-xs">
+                  <Tag className="h-3 w-3 text-purple-400 shrink-0" />
+                  <span className="text-slate-300 font-mono">
+                    {decodedQuery.query.category}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5 mt-1">
+                  {decodedQuery.query.requested_fields.map((f, i) => (
+                    <span key={i} className="bg-slate-800 px-2 py-0.5 rounded text-[10px] text-slate-300 font-mono">
+                      {f}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </aside>
+
+      {/* MAIN VIEWPORT */}
+      <div className="relative z-10 flex-1 flex flex-col h-full overflow-hidden bg-[#0f1117] w-full">
+        {/* TOP BAR */}
+        <header className="w-full py-3 px-4 md:px-6 flex items-center justify-between border-b border-slate-800/80 bg-[#161922]/70 backdrop-blur-md">
+          <div className="flex items-center gap-3">
+            {!sidebarOpen && (
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className="p-1.5 rounded-md text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+              >
+                <SidebarOpen className="h-4 w-4" />
+              </button>
+            )}
+            <button
+              onClick={() => router.push("/")}
+              className="flex items-center gap-2 text-xs font-mono text-slate-400 hover:text-purple-400 transition-colors"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              BACK
+            </button>
+            <div className="flex items-center gap-2 bg-purple-950/40 border border-purple-800/40 px-3 py-1 rounded-full text-xs font-mono">
+              <span className="h-2 w-2 rounded-full bg-purple-400 animate-pulse" />
+              <span className="text-purple-200 font-medium">Results Dashboard</span>
+            </div>
+          </div>
+        </header>
+
+        {/* MAIN CONTENT AREA */}
+        <main className="flex-1 overflow-y-auto px-4 py-6 md:py-8">
+          {/* LOADING & PROGRESS TRACKER */}
+          {loading && (
+            <motion.div
+              variants={containerVariants}
+              initial="hidden"
+              animate="visible"
+              className="w-full max-w-4xl mx-auto flex flex-col gap-8 py-8"
+            >
+              <motion.div variants={itemVariants} className="text-center flex flex-col gap-3">
+                <h2 className="text-xl md:text-2xl font-light text-slate-100">
+                  Processing command query...
+                </h2>
+                <p className="text-xs md:text-sm font-mono text-purple-400/80 break-words">
+                  "{job?.originalCommand}"
+                </p>
+              </motion.div>
+
+              <motion.div variants={itemVariants} className="bg-[#161922] border border-slate-800 rounded-xl p-6 md:p-8 flex flex-col gap-6">
                 <div className="flex flex-col gap-1">
-                  <span className="text-xs uppercase font-mono tracking-wider text-zinc-400">
+                  <span className="text-[10px] uppercase font-mono tracking-wider text-slate-500">
                     Active Scraper Pipeline
                   </span>
-                  <span className="text-xl md:text-2xl font-bold text-white flex items-center gap-3">
+                  <span className="text-lg md:text-xl font-bold text-slate-100 flex items-center gap-3">
                     <motion.div
                       animate={{ rotate: 360 }}
                       transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
                     >
-                      <Loader2 className="h-6 w-6 text-[var(--color-primary)]" />
+                      <Loader2 className="h-5 w-5 text-purple-400" />
                     </motion.div>
                     {decodedQuery?.progress?.stage || "Understanding Request"}
                   </span>
-                  <span className="text-sm text-zinc-500 font-mono mt-1 break-words">
+                  <span className="text-xs md:text-sm text-slate-400 font-mono mt-1 break-words">
                     {decodedQuery?.progress?.detail || "Initialising parsing engine..."}
                   </span>
                 </div>
 
-                {/* Progress Indicators with staggered animation */}
-                <div className="flex flex-col gap-4 mt-4">
+                {/* Progress Indicators */}
+                <div className="flex flex-col gap-3 mt-2">
                   {STAGES.map((stage, idx) => {
                     const isFinished = idx < activeStageIndex;
                     const isActive = idx === activeStageIndex;
                     return (
                       <motion.div
                         key={idx}
-                        initial={{ opacity: 0, x: -12 }}
+                        initial={{ opacity: 0, x: -8 }}
                         animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: idx * 0.06 }}
-                        className="flex items-center gap-4 text-sm font-mono"
+                        transition={{ delay: idx * 0.05 }}
+                        className="flex items-center gap-3 text-xs font-mono"
                       >
                         <motion.div
-                          className={`h-6 w-6 rounded-full flex items-center justify-center border text-[11px] font-bold shrink-0 ${isFinished
-                              ? "bg-[var(--color-primary)] border-[var(--color-primary)] text-white"
+                          className={`h-5 w-5 rounded-full flex items-center justify-center border text-[10px] font-bold shrink-0 ${
+                            isFinished
+                              ? "bg-purple-600 border-purple-600 text-white"
                               : isActive
-                                ? "border-[var(--color-primary)] text-[var(--color-primary)] animate-pulse"
-                                : "border-zinc-800 text-zinc-600"
-                            }`}
+                                ? "border-purple-400 text-purple-400 animate-pulse"
+                                : "border-slate-700 text-slate-600"
+                          }`}
                           animate={isActive ? { scale: [1, 1.15, 1] } : {}}
                           transition={{ repeat: Infinity, duration: 1.8 }}
                         >
@@ -481,10 +553,10 @@ export default function SearchResultsPage() {
                         <span
                           className={
                             isFinished
-                              ? "text-zinc-400 line-through decoration-zinc-800"
+                              ? "text-slate-400 line-through decoration-slate-700"
                               : isActive
-                                ? "text-white font-bold"
-                                : "text-zinc-600"
+                                ? "text-slate-100 font-bold"
+                                : "text-slate-600"
                           }
                         >
                           {stage}
@@ -493,483 +565,438 @@ export default function SearchResultsPage() {
                     );
                   })}
                 </div>
-
-                {/* Metadata summary */}
-                {decodedQuery?.query && (
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: 0.4 }}
-                    className="border-t border-zinc-900 pt-6 mt-4 grid grid-cols-1 md:grid-cols-2 gap-6 text-sm font-mono"
-                  >
-                    <div className="flex flex-col gap-1">
-                      <span className="text-zinc-500 uppercase tracking-wider text-[11px]">Location Target</span>
-                      <span className="text-white flex items-center gap-1.5 break-words">
-                        <MapPin className="h-4 w-4 text-[var(--color-primary)] shrink-0" />
-                        {decodedQuery.query.location.query || decodedQuery.query.location.city || "Pakistan"}
-                      </span>
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <span className="text-zinc-500 uppercase tracking-wider text-[11px]">Data Category</span>
-                      <span className="text-white flex items-center gap-1.5 break-words">
-                        <Tag className="h-4 w-4 text-[var(--color-primary)] shrink-0" />
-                        {decodedQuery.query.category}
-                      </span>
-                    </div>
-                    <div className="md:col-span-2 flex flex-col gap-1">
-                      <span className="text-zinc-500 uppercase tracking-wider text-[11px]">Fields Requested</span>
-                      <span className="text-zinc-400 flex flex-wrap gap-2">
-                        {decodedQuery.query.requested_fields.map((f, i) => (
-                          <span key={i} className="bg-zinc-900 px-2 py-0.5 rounded-[2px] text-xs text-zinc-300 break-all">
-                            {f}
-                          </span>
-                        ))}
-                      </span>
-                    </div>
-                  </motion.div>
-                )}
-              </GradientBorder>
+              </motion.div>
             </motion.div>
-          </motion.section>
-        )}
+          )}
 
-        {/* ERROR DISPLAY with animation */}
-        {error && !loading && (
-          <motion.section
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ type: "spring" as const, stiffness: 400, damping: 30 }}
-            className="max-w-xl mx-auto w-full py-12"
-          >
-            <div className="border border-red-200 bg-red-50 text-red-800 p-6 rounded-[4px] flex flex-col gap-4">
-              <div className="flex items-center gap-3">
-                <AlertTriangle className="h-6 w-6 text-red-600" />
-                <h3 className="text-base font-semibold">Extraction Job Failed</h3>
-              </div>
-              <p className="text-xs font-mono leading-relaxed bg-red-100/50 p-3 rounded-[2px] border border-red-200">
-                {error}
-              </p>
-              <motion.button
-                whileHover={{ scale: 1.03 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => router.push("/")}
-                className="mt-2 py-2 px-4 bg-red-600 text-white font-mono text-xs rounded-[2px] self-start cursor-pointer hover:bg-red-700 transition-all"
-              >
-                RETURN & RETRY
-              </motion.button>
-            </div>
-          </motion.section>
-        )}
-
-        {/* COMPLETED RESULTS DASHBOARD */}
-        {!loading && !error && job && (
-          <motion.div
-            variants={containerVariants}
-            initial="hidden"
-            animate="visible"
-            className="flex flex-col gap-6"
-          >
-
-            {/* Dashboard Hero Header */}
-            <motion.section variants={itemVariants} className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-[var(--color-border-custom)]">
-              <div className="flex flex-col gap-1.5">
-                <span className="text-xs uppercase font-mono text-[var(--color-primary)] tracking-wider">
-                  Result Analysis Report
-                </span>
-                <h1 className="text-2xl md:text-3xl font-light tracking-tight max-w-2xl leading-snug">
-                  "{job.originalCommand}"
-                </h1>
-                <div className="flex flex-wrap items-center gap-4 text-xs font-mono text-zinc-500 mt-2">
-                  <span className="flex items-center gap-1.5">
-                    <Clock className="h-3.5 w-3.5" />
-                    {new Date(job.createdAt).toLocaleTimeString()}
-                  </span>
-                  <span>·</span>
-                  <span className="flex items-center gap-1">
-                    <Database className="h-3.5 w-3.5 text-emerald-500" />
-                    {job.totalResults} RECORDS EXTRACTED
-                  </span>
-                  <span>·</span>
-                  <span className="text-zinc-400">
-                    Source: Google Places API
-                  </span>
+          {/* ERROR DISPLAY */}
+          {error && !loading && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="max-w-xl mx-auto w-full py-8"
+            >
+              <div className="bg-red-950/60 border border-red-500/40 rounded-xl p-6 flex flex-col gap-4">
+                <div className="flex items-center gap-3">
+                  <AlertTriangle className="h-6 w-6 text-red-400" />
+                  <h3 className="text-base font-semibold text-red-200">Extraction Job Failed</h3>
                 </div>
+                <p className="text-xs font-mono leading-relaxed bg-red-950/40 p-3 rounded border border-red-500/20 text-red-200">
+                  {error}
+                </p>
+                <button
+                  onClick={() => router.push("/")}
+                  className="mt-2 py-2 px-4 bg-red-600 hover:bg-red-500 text-white font-mono text-xs rounded-lg self-start transition-colors"
+                >
+                  RETURN & RETRY
+                </button>
               </div>
+            </motion.div>
+          )}
 
-              {/* Action Buttons */}
-              <div className="flex items-center gap-3">
-                <motion.button
-                  {...buttonHoverTap}
-                  onClick={handleExcelExport}
-                  className="flex items-center gap-2 py-2 px-4 border border-[var(--color-border-custom)] bg-zinc-50 hover:bg-zinc-100 font-mono text-xs rounded-[2px] transition-all cursor-pointer"
-                >
-                  <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
-                  EXCEL
-                </motion.button>
-                <motion.button
-                  {...buttonHoverTap}
-                  onClick={handlePDFExport}
-                  className="flex items-center gap-2 py-2 px-4 border border-[var(--color-border-custom)] bg-zinc-50 hover:bg-zinc-100 font-mono text-xs rounded-[2px] transition-all cursor-pointer"
-                >
-                  <FileText className="h-4 w-4 text-red-600" />
-                  PDF REPORT
-                </motion.button>
-                <motion.button
-                  {...buttonHoverTap}
-                  onClick={handleCSVExport}
-                  className="flex items-center gap-2 py-2 px-4 border border-[var(--color-border-custom)] bg-zinc-50 hover:bg-zinc-100 font-mono text-xs rounded-[2px] transition-all cursor-pointer"
-                >
-                  <Download className="h-4 w-4 text-zinc-600" />
-                  CSV
-                </motion.button>
-              </div>
-            </motion.section>
-
-            {/* Metrics cards with staggered animation */}
-            <motion.section
+          {/* COMPLETED RESULTS DASHBOARD */}
+          {!loading && !error && job && (
+            <motion.div
               variants={containerVariants}
               initial="hidden"
               animate="visible"
-              className="grid grid-cols-2 md:grid-cols-4 gap-4"
+              className="w-full max-w-7xl mx-auto flex flex-col gap-6"
             >
-              {[
-                { label: "Total Records", value: filteredAndSortedBusinesses.length, sub: `of ${results.length} total found` },
-                { label: "Location Target", value: decodedQuery?.query.location.query || decodedQuery?.query.location.city || "Pakistan", sub: `Filtered: ${filterCity === "all" ? "All Cities" : filterCity}` },
-                { label: "Target Category", value: decodedQuery?.query.category || "Business", sub: `Filtered: ${filterCategory === "all" ? "All" : filterCategory}` },
-                { label: "Data Coverage", value: `${Math.round(((results.filter(r => r.phone).length + results.filter(r => r.website).length) / (results.length * 2 || 1)) * 100)}%`, sub: "Contact detail availability" }
-              ].map((metric, idx) => (
-                <motion.div
-                  key={idx}
-                  variants={itemVariants}
-                  whileHover={{ scale: 1.02, borderColor: "#3b82f6" }}
-                  transition={{ type: "spring" as const, stiffness: 400, damping: 17 }}
-                  className="p-4 border border-[var(--color-border-custom)] rounded-[4px] bg-zinc-50 flex flex-col gap-1"
-                >
-                  <span className="text-[10px] uppercase font-mono text-zinc-500 tracking-wider">{metric.label}</span>
-                  <span className="text-2xl font-bold font-mono truncate">{metric.value}</span>
-                  <span className="text-[10px] text-zinc-400">{metric.sub}</span>
-                </motion.div>
-              ))}
-            </motion.section>
-
-            {/* Filter and Search controls */}
-            <motion.section variants={itemVariants} className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="relative flex-1 max-w-md">
-                <Search className="absolute left-3 top-2.5 h-4 w-4 text-zinc-400" />
-                <input
-                  type="text"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Instant search by name, phone, website, city..."
-                  className="w-full pl-9 pr-4 py-2 bg-zinc-50 border border-[var(--color-border-custom)] rounded-[4px] text-sm focus:outline-none focus:border-[var(--color-primary)] font-medium placeholder-zinc-400"
-                />
-              </div>
-
-              <motion.button
-                {...buttonHoverTap}
-                onClick={() => setIsFilterOpen(!isFilterOpen)}
-                className={`flex items-center gap-2 py-2 px-4 border rounded-[4px] text-xs font-mono transition-all cursor-pointer ${isFilterOpen || filterCity !== "all" || filterCategory !== "all" || filterMinRating > 0 || filterHasPhone || filterHasWebsite
-                    ? "bg-[var(--color-primary)] text-white border-[var(--color-primary)]"
-                    : "bg-white text-zinc-600 border-[var(--color-border-custom)] hover:bg-zinc-50"
-                  }`}
-              >
-                <SlidersHorizontal className="h-4.5 w-4.5" />
-                ADVANCED FILTERS
-              </motion.button>
-            </motion.section>
-
-            {/* Filter Panel with AnimatePresence */}
-            <AnimatePresence>
-              {isFilterOpen && (
-                <motion.div
-                  variants={filterPanelVariants}
-                  initial="hidden"
-                  animate="visible"
-                  exit="exit"
-                  className="overflow-hidden"
-                >
-                  <div className="p-5 bg-zinc-50 border border-[var(--color-border-custom)] rounded-[4px] grid grid-cols-1 md:grid-cols-4 gap-6 text-xs font-mono">
-
-                    <div className="flex flex-col gap-2">
-                      <label className="text-zinc-500 uppercase tracking-wider font-bold">Location/City</label>
-                      <select
-                        value={filterCity}
-                        onChange={(e) => setFilterCity(e.target.value)}
-                        className="p-2 border border-[var(--color-border-custom)] rounded-[4px] bg-white outline-none"
-                      >
-                        <option value="all">All Cities ({citiesList.length})</option>
-                        {citiesList.map((c) => (
-                          <option key={c} value={c}>{c}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="flex flex-col gap-2">
-                      <label className="text-zinc-500 uppercase tracking-wider font-bold">Category</label>
-                      <select
-                        value={filterCategory}
-                        onChange={(e) => setFilterCategory(e.target.value)}
-                        className="p-2 border border-[var(--color-border-custom)] rounded-[4px] bg-white outline-none"
-                      >
-                        <option value="all">All Categories ({categoriesList.length})</option>
-                        {categoriesList.map((c) => (
-                          <option key={c} value={c}>{c}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="flex flex-col gap-2">
-                      <label className="text-zinc-500 uppercase tracking-wider font-bold">Minimum Rating</label>
-                      <select
-                        value={filterMinRating}
-                        onChange={(e) => setFilterMinRating(parseFloat(e.target.value))}
-                        className="p-2 border border-[var(--color-border-custom)] rounded-[4px] bg-white outline-none"
-                      >
-                        <option value="0">Any Rating</option>
-                        <option value="4.5">4.5+ Stars</option>
-                        <option value="4.0">4.0+ Stars</option>
-                        <option value="3.5">3.5+ Stars</option>
-                      </select>
-                    </div>
-
-                    <div className="flex flex-col gap-3 justify-center pt-2">
-                      <label className="flex items-center gap-2 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={filterHasPhone}
-                          onChange={(e) => setFilterHasPhone(e.target.checked)}
-                          className="h-3.5 w-3.5 accent-[var(--color-primary)] rounded-[2px]"
-                        />
-                        <span>Has Phone Number</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={filterHasWebsite}
-                          onChange={(e) => setFilterHasWebsite(e.target.checked)}
-                          className="h-3.5 w-3.5 accent-[var(--color-primary)] rounded-[2px]"
-                        />
-                        <span>Has Website URL</span>
-                      </label>
-                    </div>
-
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* Results Table */}
-            <motion.div variants={itemVariants} className="border border-[var(--color-border-custom)] rounded-[4px] overflow-hidden bg-white shadow-default-custom flex flex-col">
-              <div className="overflow-x-auto w-full">
-                <table className="w-full border-collapse text-left text-xs">
-                  <thead className="bg-zinc-50 border-b border-[var(--color-border-custom)] text-zinc-500 font-mono sticky top-0 uppercase tracking-wider">
-                    <tr>
-                      <th className="py-3 px-4 font-semibold w-10">#</th>
-                      <th
-                        onClick={() => handleSort("name")}
-                        className="py-3 px-4 font-semibold cursor-pointer hover:bg-zinc-100 transition-colors w-[220px]"
-                      >
-                        <span className="flex items-center gap-1">
-                          Business Name
-                          {sortBy === "name" && (sortOrder === "asc" ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />)}
-                        </span>
-                      </th>
-                      <th
-                        onClick={() => handleSort("category")}
-                        className="py-3 px-4 font-semibold cursor-pointer hover:bg-zinc-100 transition-colors w-[110px]"
-                      >
-                        <span className="flex items-center gap-1">
-                          Category
-                          {sortBy === "category" && (sortOrder === "asc" ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />)}
-                        </span>
-                      </th>
-                      <th
-                        onClick={() => handleSort("city")}
-                        className="py-3 px-4 font-semibold cursor-pointer hover:bg-zinc-100 transition-colors w-[100px]"
-                      >
-                        <span className="flex items-center gap-1">
-                          City
-                          {sortBy === "city" && (sortOrder === "asc" ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />)}
-                        </span>
-                      </th>
-                      <th className="py-3 px-4 font-semibold w-[140px]">Phone</th>
-                      <th className="py-3 px-4 font-semibold w-[180px]">Website</th>
-                      <th
-                        onClick={() => handleSort("rating")}
-                        className="py-3 px-4 font-semibold cursor-pointer hover:bg-zinc-100 transition-colors w-[80px]"
-                      >
-                        <span className="flex items-center gap-1">
-                          Rating
-                          {sortBy === "rating" && (sortOrder === "asc" ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />)}
-                        </span>
-                      </th>
-                      <th className="py-3 px-4 font-semibold">Address</th>
-                      <th className="py-3 px-4 font-semibold w-16 text-center">Action</th>
-                    </tr>
-                  </thead>
-
-                  <tbody className="divide-y divide-[var(--color-border-custom)]">
-                    {resultsLoading ? (
-                      <tr>
-                        <td colSpan={9} className="py-12 text-center text-zinc-500 font-mono">
-                          <motion.div
-                            animate={{ rotate: 360 }}
-                            transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
-                            className="h-6 w-6 mx-auto mb-2 text-[var(--color-primary)]"
-                          >
-                            <Loader2 className="h-6 w-6" />
-                          </motion.div>
-                          Reloading dataset...
-                        </td>
-                      </tr>
-                    ) : paginatedBusinesses.length === 0 ? (
-                      <tr>
-                        <td colSpan={9} className="py-12 text-center text-zinc-500">
-                          <p className="font-semibold text-sm text-zinc-700">No matching businesses found</p>
-                          <p className="text-xs text-zinc-400 mt-1">Try broadening your location target or clearing filter criteria.</p>
-                        </td>
-                      </tr>
-                    ) : (
-                      paginatedBusinesses.map((b, idx) => (
-                        <motion.tr
-                          key={b.id}
-                          custom={idx}
-                          variants={tableRowVariants}
-                          initial="hidden"
-                          animate="visible"
-                          whileHover="hover"
-                          className="group cursor-pointer"
-                          onClick={() => setSelectedBusiness(b)}
-                        >
-                          <td className="py-3 px-4 font-mono text-zinc-400">
-                            {(currentPage - 1) * pageSize + idx + 1}
-                          </td>
-                          <td className="py-3 px-4 font-semibold text-zinc-900 max-w-[220px] truncate">
-                            {b.name}
-                          </td>
-                          <td className="py-3 px-4">
-                            <span className="bg-zinc-100 text-zinc-800 text-[10px] font-medium py-0.5 px-2 rounded-[2px] font-mono">
-                              {b.category}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4 text-zinc-700">{b.city || "-"}</td>
-                          <td className="py-3 px-4 font-mono text-zinc-700">
-                            {b.phone ? (
-                              <a
-                                href={`tel:${b.phone}`}
-                                onClick={(e) => e.stopPropagation()}
-                                className="flex items-center gap-1 hover:text-[var(--color-primary)] hover:underline"
-                              >
-                                <Phone className="h-3 w-3 text-zinc-400" />
-                                {b.phone}
-                              </a>
-                            ) : (
-                              <span className="text-zinc-300">-</span>
-                            )}
-                          </td>
-                          <td className="py-3 px-4 font-mono text-zinc-700 truncate max-w-[180px]">
-                            {b.website ? (
-                              <a
-                                href={b.website}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                onClick={(e) => e.stopPropagation()}
-                                className="flex items-center gap-1 hover:text-[var(--color-primary)] hover:underline truncate text-zinc-600"
-                              >
-                                <Globe className="h-3 w-3 text-zinc-400 shrink-0" />
-                                {b.website.replace(/^https?:\/\//, "")}
-                              </a>
-                            ) : (
-                              <span className="text-zinc-300">-</span>
-                            )}
-                          </td>
-                          <td className="py-3 px-4 font-mono">
-                            {b.rating ? (
-                              <span className="flex items-center gap-1 text-amber-500 font-bold">
-                                <Star className="h-3.5 w-3.5 fill-amber-500 shrink-0" />
-                                {b.rating}
-                              </span>
-                            ) : (
-                              <span className="text-zinc-300">-</span>
-                            )}
-                          </td>
-                          <td className="py-3 px-4 text-zinc-500 max-w-[200px] truncate group-hover:text-zinc-800 transition-colors" title={b.address || ""}>
-                            {b.address || "-"}
-                          </td>
-                          <td className="py-3 px-4 text-center">
-                            <motion.button
-                              whileHover={{ scale: 1.1 }}
-                              whileTap={{ scale: 0.9 }}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelectedBusiness(b);
-                              }}
-                              className="text-zinc-400 hover:text-[var(--color-primary)] p-1 rounded-[2px]"
-                            >
-                              <Eye className="h-4 w-4" />
-                            </motion.button>
-                          </td>
-                        </motion.tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Pagination footer */}
-              {filteredAndSortedBusinesses.length > 0 && (
-                <div className="py-3.5 px-4 border-t border-[var(--color-border-custom)] bg-zinc-50 flex items-center justify-between text-xs font-mono text-zinc-500">
-                  <div className="flex items-center gap-2">
-                    <span>Page size:</span>
-                    <select
-                      value={pageSize}
-                      onChange={(e) => {
-                        setPageSize(parseInt(e.target.value, 10));
-                        setCurrentPage(1);
-                      }}
-                      className="border border-[var(--color-border-custom)] bg-white rounded-[2px] p-1 font-mono outline-none"
-                    >
-                      <option value={10}>10</option>
-                      <option value={20}>20</option>
-                      <option value={50}>50</option>
-                    </select>
-                  </div>
-                  <div>
-                    Showing {(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, filteredAndSortedBusinesses.length)} of {filteredAndSortedBusinesses.length} records
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => setCurrentPage(currentPage - 1)}
-                      disabled={currentPage === 1}
-                      className="p-1 border border-[var(--color-border-custom)] bg-white hover:bg-zinc-100 disabled:opacity-40 disabled:hover:bg-white rounded-[2px] transition-colors cursor-pointer"
-                    >
-                      <ChevronLeft className="h-4.5 w-4.5" />
-                    </motion.button>
-                    <span className="px-3">
-                      {currentPage} / {totalPages}
+              {/* Dashboard Hero Header */}
+              <motion.section variants={itemVariants} className="flex flex-col md:flex-row md:items-end justify-between gap-4 pb-4 border-b border-slate-800/80">
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[10px] uppercase font-mono text-purple-400 tracking-wider">
+                    Result Analysis Report
+                  </span>
+                  <h1 className="text-lg md:text-2xl font-light text-slate-100 max-w-2xl leading-snug">
+                    "{job.originalCommand}"
+                  </h1>
+                  <div className="flex flex-wrap items-center gap-3 text-[10px] md:text-xs font-mono text-slate-500 mt-1.5">
+                    <span className="flex items-center gap-1.5">
+                      <Clock className="h-3 w-3" />
+                      {new Date(job.createdAt).toLocaleTimeString()}
                     </span>
-                    <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => setCurrentPage(currentPage + 1)}
-                      disabled={currentPage === totalPages}
-                      className="p-1 border border-[var(--color-border-custom)] bg-white hover:bg-zinc-100 disabled:opacity-40 disabled:hover:bg-white rounded-[2px] transition-colors cursor-pointer"
-                    >
-                      <ChevronRight className="h-4.5 w-4.5" />
-                    </motion.button>
+                    <span>·</span>
+                    <span className="flex items-center gap-1">
+                      <Database className="h-3 w-3 text-emerald-400" />
+                      {job.totalResults} RECORDS EXTRACTED
+                    </span>
+                    <span>·</span>
+                    <span className="text-slate-400">
+                      Source: Google Places API
+                    </span>
                   </div>
                 </div>
-              )}
+
+                {/* Action Buttons */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={handleExcelExport}
+                    className="flex items-center gap-1.5 py-1.5 px-3 border border-slate-700 bg-[#161922] hover:bg-slate-800 font-mono text-[10px] md:text-xs rounded-lg text-slate-200 transition-all"
+                  >
+                    <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-400" />
+                    EXCEL
+                  </button>
+                  <button
+                    onClick={handlePDFExport}
+                    className="flex items-center gap-1.5 py-1.5 px-3 border border-slate-700 bg-[#161922] hover:bg-slate-800 font-mono text-[10px] md:text-xs rounded-lg text-slate-200 transition-all"
+                  >
+                    <FileText className="h-3.5 w-3.5 text-red-400" />
+                    PDF
+                  </button>
+                  <button
+                    onClick={handleCSVExport}
+                    className="flex items-center gap-1.5 py-1.5 px-3 border border-slate-700 bg-[#161922] hover:bg-slate-800 font-mono text-[10px] md:text-xs rounded-lg text-slate-200 transition-all"
+                  >
+                    <Download className="h-3.5 w-3.5 text-slate-400" />
+                    CSV
+                  </button>
+                </div>
+              </motion.section>
+
+              {/* Metrics Cards */}
+              <motion.section
+                variants={containerVariants}
+                className="grid grid-cols-2 md:grid-cols-4 gap-3"
+              >
+                {[
+                  { label: "Total Records", value: filteredAndSortedBusinesses.length, sub: `of ${results.length} total found` },
+                  { label: "Location Target", value: decodedQuery?.query.location.query || decodedQuery?.query.location.city || "Pakistan", sub: `Filtered: ${filterCity === "all" ? "All Cities" : filterCity}` },
+                  { label: "Target Category", value: decodedQuery?.query.category || "Business", sub: `Filtered: ${filterCategory === "all" ? "All" : filterCategory}` },
+                  { label: "Data Coverage", value: `${Math.round(((results.filter(r => r.phone).length + results.filter(r => r.website).length) / (results.length * 2 || 1)) * 100)}%`, sub: "Contact detail availability" }
+                ].map((metric, idx) => (
+                  <motion.div
+                    key={idx}
+                    variants={itemVariants}
+                    className="bg-[#161922] border border-slate-800 rounded-xl p-4 flex flex-col gap-1"
+                  >
+                    <span className="text-[10px] uppercase font-mono text-slate-500 tracking-wider">{metric.label}</span>
+                    <span className="text-xl font-bold text-slate-100 truncate">{metric.value}</span>
+                    <span className="text-[10px] text-slate-400">{metric.sub}</span>
+                  </motion.div>
+                ))}
+              </motion.section>
+
+              {/* Filter and Search Controls */}
+              <motion.section variants={itemVariants} className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div className="relative flex-1 max-w-md">
+                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
+                  <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Search by name, phone, website, city..."
+                    className="w-full pl-9 pr-4 py-2 bg-[#161922] border border-slate-800 rounded-xl text-sm focus:outline-none focus:border-purple-500/80 text-slate-100 placeholder-slate-500 font-medium"
+                  />
+                </div>
+
+                <button
+                  onClick={() => setIsFilterOpen(!isFilterOpen)}
+                  className={`flex items-center gap-2 py-2 px-4 border rounded-xl text-xs font-mono transition-all ${
+                    isFilterOpen || filterCity !== "all" || filterCategory !== "all" || filterMinRating > 0 || filterHasPhone || filterHasWebsite
+                      ? "bg-purple-600 text-white border-purple-600"
+                      : "bg-[#161922] text-slate-300 border-slate-800 hover:border-slate-700"
+                  }`}
+                >
+                  <SlidersHorizontal className="h-4 w-4" />
+                  ADVANCED FILTERS
+                </button>
+              </motion.section>
+
+              {/* Filter Panel */}
+              <AnimatePresence>
+                {isFilterOpen && (
+                  <motion.div
+                    variants={filterPanelVariants}
+                    initial="hidden"
+                    animate="visible"
+                    exit="exit"
+                    className="overflow-hidden"
+                  >
+                    <div className="p-4 md:p-5 bg-[#161922] border border-slate-800 rounded-xl grid grid-cols-1 md:grid-cols-4 gap-4 text-xs font-mono">
+                      <div className="flex flex-col gap-2">
+                        <label className="text-slate-400 uppercase tracking-wider text-[10px] font-bold">Location/City</label>
+                        <select
+                          value={filterCity}
+                          onChange={(e) => setFilterCity(e.target.value)}
+                          className="p-2 bg-[#0f1117] border border-slate-800 rounded-lg text-slate-200 outline-none focus:border-purple-500/80"
+                        >
+                          <option value="all">All Cities ({citiesList.length})</option>
+                          {citiesList.map((c) => (
+                            <option key={c} value={c}>{c}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="flex flex-col gap-2">
+                        <label className="text-slate-400 uppercase tracking-wider text-[10px] font-bold">Category</label>
+                        <select
+                          value={filterCategory}
+                          onChange={(e) => setFilterCategory(e.target.value)}
+                          className="p-2 bg-[#0f1117] border border-slate-800 rounded-lg text-slate-200 outline-none focus:border-purple-500/80"
+                        >
+                          <option value="all">All Categories ({categoriesList.length})</option>
+                          {categoriesList.map((c) => (
+                            <option key={c} value={c}>{c}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="flex flex-col gap-2">
+                        <label className="text-slate-400 uppercase tracking-wider text-[10px] font-bold">Min Rating</label>
+                        <select
+                          value={filterMinRating}
+                          onChange={(e) => setFilterMinRating(parseFloat(e.target.value))}
+                          className="p-2 bg-[#0f1117] border border-slate-800 rounded-lg text-slate-200 outline-none focus:border-purple-500/80"
+                        >
+                          <option value="0">Any Rating</option>
+                          <option value="4.5">4.5+ Stars</option>
+                          <option value="4.0">4.0+ Stars</option>
+                          <option value="3.5">3.5+ Stars</option>
+                        </select>
+                      </div>
+
+                      <div className="flex flex-col gap-3 justify-center">
+                        <label className="flex items-center gap-2 cursor-pointer select-none text-slate-300">
+                          <input
+                            type="checkbox"
+                            checked={filterHasPhone}
+                            onChange={(e) => setFilterHasPhone(e.target.checked)}
+                            className="h-3.5 w-3.5 accent-purple-600 rounded"
+                          />
+                          <span>Has Phone Number</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer select-none text-slate-300">
+                          <input
+                            type="checkbox"
+                            checked={filterHasWebsite}
+                            onChange={(e) => setFilterHasWebsite(e.target.checked)}
+                            className="h-3.5 w-3.5 accent-purple-600 rounded"
+                          />
+                          <span>Has Website URL</span>
+                        </label>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Results Table */}
+              <motion.div variants={itemVariants} className="bg-[#161922] border border-slate-800 rounded-xl overflow-hidden">
+                <div className="overflow-x-auto w-full">
+                  <table className="w-full border-collapse text-left text-xs">
+                    <thead className="bg-[#0f1117] border-b border-slate-800 text-slate-400 font-mono uppercase tracking-wider">
+                      <tr>
+                        <th className="py-3 px-4 font-semibold w-10">#</th>
+                        <th
+                          onClick={() => handleSort("name")}
+                          className="py-3 px-4 font-semibold cursor-pointer hover:text-slate-200 transition-colors min-w-[160px]"
+                        >
+                          <span className="flex items-center gap-1">
+                            Business
+                            {sortBy === "name" && (sortOrder === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                          </span>
+                        </th>
+                        <th
+                          onClick={() => handleSort("category")}
+                          className="py-3 px-4 font-semibold cursor-pointer hover:text-slate-200 transition-colors min-w-[100px]"
+                        >
+                          <span className="flex items-center gap-1">
+                            Category
+                            {sortBy === "category" && (sortOrder === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                          </span>
+                        </th>
+                        <th
+                          onClick={() => handleSort("city")}
+                          className="py-3 px-4 font-semibold cursor-pointer hover:text-slate-200 transition-colors min-w-[80px]"
+                        >
+                          <span className="flex items-center gap-1">
+                            City
+                            {sortBy === "city" && (sortOrder === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                          </span>
+                        </th>
+                        <th className="py-3 px-4 font-semibold min-w-[120px]">Phone</th>
+                        <th className="py-3 px-4 font-semibold min-w-[140px]">Website</th>
+                        <th
+                          onClick={() => handleSort("rating")}
+                          className="py-3 px-4 font-semibold cursor-pointer hover:text-slate-200 transition-colors min-w-[70px]"
+                        >
+                          <span className="flex items-center gap-1">
+                            Rating
+                            {sortBy === "rating" && (sortOrder === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                          </span>
+                        </th>
+                        <th className="py-3 px-4 font-semibold min-w-[150px]">Address</th>
+                        <th className="py-3 px-4 font-semibold w-12 text-center">View</th>
+                      </tr>
+                    </thead>
+
+                    <tbody className="divide-y divide-slate-800/60">
+                      {resultsLoading ? (
+                        <tr>
+                          <td colSpan={9} className="py-12 text-center text-slate-500 font-mono">
+                            <motion.div
+                              animate={{ rotate: 360 }}
+                              transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
+                              className="h-6 w-6 mx-auto mb-2 text-purple-400"
+                            >
+                              <Loader2 className="h-6 w-6" />
+                            </motion.div>
+                            Reloading dataset...
+                          </td>
+                        </tr>
+                      ) : paginatedBusinesses.length === 0 ? (
+                        <tr>
+                          <td colSpan={9} className="py-12 text-center text-slate-500">
+                            <p className="font-semibold text-sm text-slate-400">No matching businesses found</p>
+                            <p className="text-xs text-slate-500 mt-1">Try broadening your search or clearing filters.</p>
+                          </td>
+                        </tr>
+                      ) : (
+                        paginatedBusinesses.map((b, idx) => (
+                          <motion.tr
+                            key={b.id}
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            transition={{ delay: idx * 0.02 }}
+                            className="group hover:bg-[#1e2330] cursor-pointer transition-colors"
+                            onClick={() => setSelectedBusiness(b)}
+                          >
+                            <td className="py-3 px-4 font-mono text-slate-500">
+                              {(currentPage - 1) * pageSize + idx + 1}
+                            </td>
+                            <td className="py-3 px-4 font-medium text-slate-100 max-w-[200px] truncate">
+                              {b.name}
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className="bg-slate-800 text-slate-300 text-[10px] font-medium py-0.5 px-2 rounded font-mono">
+                                {b.category}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-slate-300">{b.city || "-"}</td>
+                            <td className="py-3 px-4 font-mono text-slate-300">
+                              {b.phone ? (
+                                <a
+                                  href={`tel:${b.phone}`}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="flex items-center gap-1 hover:text-purple-400 hover:underline"
+                                >
+                                  <Phone className="h-3 w-3 text-slate-500" />
+                                  {b.phone}
+                                </a>
+                              ) : (
+                                <span className="text-slate-600">-</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 font-mono text-slate-300 truncate max-w-[180px]">
+                              {b.website ? (
+                                <a
+                                  href={b.website}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="flex items-center gap-1 hover:text-purple-400 hover:underline truncate"
+                                >
+                                  <Globe className="h-3 w-3 text-slate-500 shrink-0" />
+                                  {b.website.replace(/^https?:\/\//, "")}
+                                </a>
+                              ) : (
+                                <span className="text-slate-600">-</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 font-mono">
+                              {b.rating ? (
+                                <span className="flex items-center gap-1 text-amber-400 font-bold">
+                                  <Star className="h-3.5 w-3.5 fill-amber-400 shrink-0" />
+                                  {b.rating}
+                                </span>
+                              ) : (
+                                <span className="text-slate-600">-</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-slate-400 max-w-[200px] truncate group-hover:text-slate-300 transition-colors" title={b.address || ""}>
+                              {b.address || "-"}
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedBusiness(b);
+                                }}
+                                className="text-slate-500 hover:text-purple-400 p-1 rounded transition-colors"
+                              >
+                                <Eye className="h-4 w-4" />
+                              </button>
+                            </td>
+                          </motion.tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Pagination footer */}
+                {filteredAndSortedBusinesses.length > 0 && (
+                  <div className="py-3 px-4 border-t border-slate-800 bg-[#0f1117] flex flex-wrap items-center justify-between gap-3 text-xs font-mono text-slate-500">
+                    <div className="flex items-center gap-2">
+                      <span>Page size:</span>
+                      <select
+                        value={pageSize}
+                        onChange={(e) => {
+                          setPageSize(parseInt(e.target.value, 10));
+                          setCurrentPage(1);
+                        }}
+                        className="border border-slate-800 bg-[#161922] rounded-lg p-1 font-mono text-slate-200 outline-none focus:border-purple-500/80"
+                      >
+                        <option value={10}>10</option>
+                        <option value={20}>20</option>
+                        <option value={50}>50</option>
+                      </select>
+                    </div>
+                    <div className="text-center">
+                      {(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, filteredAndSortedBusinesses.length)} of {filteredAndSortedBusinesses.length}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => setCurrentPage(currentPage - 1)}
+                        disabled={currentPage === 1}
+                        className="p-1.5 border border-slate-800 bg-[#161922] hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-[#161922] rounded-lg transition-colors"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </button>
+                      <span className="px-3 text-slate-400">
+                        {currentPage} / {totalPages}
+                      </span>
+                      <button
+                        onClick={() => setCurrentPage(currentPage + 1)}
+                        disabled={currentPage === totalPages}
+                        className="p-1.5 border border-slate-800 bg-[#161922] hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-[#161922] rounded-lg transition-colors"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+
+              {/* Footer */}
+              <motion.footer variants={itemVariants} className="pt-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px] text-slate-500 font-mono text-center sm:text-left border-t border-slate-800/80 py-4">
+                <span>
+                  Data extracted via Aether AI Engine • {filteredAndSortedBusinesses.length} results shown
+                </span>
+                <div className="flex items-center gap-3">
+                  <span className="flex items-center gap-1">
+                    <Database className="h-3.5 w-3.5 text-purple-400" />
+                    {results.length} total records
+                  </span>
+                </div>
+              </motion.footer>
             </motion.div>
+          )}
+        </main>
+      </div>
 
-          </motion.div>
-        )}
-
-      </main>
-
-      {/* DETAIL DRAWER VIEW OVERLAY with animations */}
+      {/* DETAIL DRAWER */}
       <AnimatePresence>
         {selectedBusiness && (
           <>
@@ -979,132 +1006,125 @@ export default function SearchResultsPage() {
               animate="visible"
               exit="exit"
               onClick={() => setSelectedBusiness(null)}
-              className="fixed inset-0 bg-black z-40"
+              className="fixed inset-0 bg-black/70 z-40"
             />
             <motion.div
               variants={drawerVariants}
               initial="hidden"
               animate="visible"
               exit="exit"
-              className="fixed right-0 top-0 bottom-0 w-full max-w-md bg-white border-l border-[var(--color-border-custom)] shadow-2xl z-50 flex flex-col"
+              className="fixed right-0 top-0 bottom-0 w-full max-w-md bg-[#161922] border-l border-slate-800 shadow-2xl z-50 flex flex-col"
             >
               {/* Drawer Header */}
-              <div className="flex items-center justify-between p-6 border-b border-[var(--color-border-custom)]">
+              <div className="flex items-center justify-between p-4 md:p-6 border-b border-slate-800">
                 <div className="flex items-center gap-2">
-                  <div className="h-2.5 w-2.5 rounded-full bg-[var(--color-primary)]" />
-                  <span className="font-mono text-xs uppercase tracking-wider text-zinc-500">Business Details</span>
+                  <div className="h-2 w-2 rounded-full bg-purple-400" />
+                  <span className="font-mono text-[10px] uppercase tracking-wider text-slate-400">Business Details</span>
                 </div>
-                <motion.button
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.9 }}
+                <button
                   onClick={() => setSelectedBusiness(null)}
-                  className="p-1 text-zinc-400 hover:text-black rounded-[2px]"
+                  className="p-1.5 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800 transition-colors"
                 >
                   <X className="h-5 w-5" />
-                </motion.button>
+                </button>
               </div>
 
-              {/* Drawer Body Scroll Area */}
-              <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6">
-
+              {/* Drawer Body */}
+              <div className="flex-1 overflow-y-auto p-4 md:p-6 flex flex-col gap-6">
                 <div className="flex flex-col gap-2">
-                  <span className="bg-zinc-100 text-zinc-800 text-[10px] font-mono font-medium py-0.5 px-2 rounded-[2px] self-start uppercase">
+                  <span className="bg-slate-800 text-slate-300 text-[10px] font-mono font-medium py-0.5 px-2 rounded self-start">
                     {selectedBusiness.category}
                   </span>
-                  <h2 className="text-xl font-bold leading-snug text-zinc-950">
+                  <h2 className="text-xl font-bold leading-snug text-slate-100">
                     {selectedBusiness.name}
                   </h2>
                   {selectedBusiness.rating && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="flex items-center gap-1.5 mt-1"
-                    >
-                      <div className="flex items-center text-amber-500">
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <div className="flex items-center text-amber-400">
                         {[1, 2, 3, 4, 5].map((s) => (
                           <Star
                             key={s}
-                            className={`h-4 w-4 ${s <= Math.round(selectedBusiness.rating || 0)
-                                ? "fill-amber-500 text-amber-500"
-                                : "text-zinc-200"
-                              }`}
+                            className={`h-4 w-4 ${
+                              s <= Math.round(selectedBusiness.rating || 0)
+                                ? "fill-amber-400 text-amber-400"
+                                : "text-slate-600"
+                            }`}
                           />
                         ))}
                       </div>
-                      <span className="text-xs font-mono font-bold text-zinc-800">
+                      <span className="text-xs font-mono font-bold text-slate-300">
                         {selectedBusiness.rating} / 5.0
                       </span>
-                    </motion.div>
+                    </div>
                   )}
                 </div>
 
-                <div className="flex flex-col gap-4 border-t border-zinc-100 pt-6">
-
+                <div className="flex flex-col gap-4 border-t border-slate-800 pt-6">
                   <div className="flex gap-3">
-                    <MapPin className="h-5 w-5 text-zinc-400 shrink-0 mt-0.5" />
+                    <MapPin className="h-5 w-5 text-slate-500 shrink-0 mt-0.5" />
                     <div className="flex flex-col gap-1.5">
-                      <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider">Address</span>
-                      <span className="text-xs text-zinc-800 font-medium">
+                      <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">Address</span>
+                      <span className="text-xs text-slate-200 font-medium">
                         {selectedBusiness.address || "No address listing found"}
                       </span>
                       {selectedBusiness.area && (
-                        <span className="text-[11px] text-zinc-500 font-mono">
+                        <span className="text-[11px] text-slate-400 font-mono">
                           Area: {selectedBusiness.area} · City: {selectedBusiness.city}
                         </span>
                       )}
                     </div>
                   </div>
 
-                  <div className="flex gap-3 border-t border-zinc-50 pt-4">
-                    <Phone className="h-5 w-5 text-zinc-400 shrink-0 mt-0.5" />
+                  <div className="flex gap-3 border-t border-slate-800 pt-4">
+                    <Phone className="h-5 w-5 text-slate-500 shrink-0 mt-0.5" />
                     <div className="flex flex-col gap-1">
-                      <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider">Phone</span>
+                      <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">Phone</span>
                       {selectedBusiness.phone ? (
                         <a
                           href={`tel:${selectedBusiness.phone}`}
-                          className="text-xs text-[var(--color-primary)] font-mono font-bold hover:underline flex items-center gap-1"
+                          className="text-xs text-purple-400 font-mono font-bold hover:underline flex items-center gap-1"
                         >
                           {selectedBusiness.phone}
                           <ExternalLink className="h-3 w-3" />
                         </a>
                       ) : (
-                        <span className="text-xs text-zinc-400 font-medium">Not Available</span>
+                        <span className="text-xs text-slate-500 font-medium">Not Available</span>
                       )}
                     </div>
                   </div>
 
-                  <div className="flex gap-3 border-t border-zinc-50 pt-4">
-                    <Globe className="h-5 w-5 text-zinc-400 shrink-0 mt-0.5" />
+                  <div className="flex gap-3 border-t border-slate-800 pt-4">
+                    <Globe className="h-5 w-5 text-slate-500 shrink-0 mt-0.5" />
                     <div className="flex flex-col gap-1">
-                      <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider">Website URL</span>
+                      <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">Website</span>
                       {selectedBusiness.website ? (
                         <a
                           href={selectedBusiness.website}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-xs text-[var(--color-primary)] font-mono font-bold hover:underline flex items-center gap-1.5 break-all"
+                          className="text-xs text-purple-400 font-mono font-bold hover:underline flex items-center gap-1.5 break-all"
                         >
                           {selectedBusiness.website}
                           <ExternalLink className="h-3 w-3 shrink-0" />
                         </a>
                       ) : (
-                        <span className="text-xs text-zinc-400 font-medium">Not Available</span>
+                        <span className="text-xs text-slate-500 font-medium">Not Available</span>
                       )}
                     </div>
                   </div>
 
                   {selectedBusiness.sourceUrl && (
-                    <div className="flex gap-3 border-t border-zinc-50 pt-4">
-                      <Eye className="h-5 w-5 text-zinc-400 shrink-0 mt-0.5" />
+                    <div className="flex gap-3 border-t border-slate-800 pt-4">
+                      <Database className="h-5 w-5 text-slate-500 shrink-0 mt-0.5" />
                       <div className="flex flex-col gap-1">
-                        <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider">Data Source</span>
-                        <span className="text-xs text-zinc-800 font-medium flex items-center gap-1.5">
+                        <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">Data Source</span>
+                        <span className="text-xs text-slate-300 font-medium flex items-center gap-1.5">
                           {selectedBusiness.source}
                           <a
                             href={selectedBusiness.sourceUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-[var(--color-primary)] hover:underline flex items-center gap-1 font-mono text-[10px]"
+                            className="text-purple-400 hover:underline flex items-center gap-1 font-mono text-[10px]"
                           >
                             Open in Maps
                             <ExternalLink className="h-3 w-3" />
@@ -1113,69 +1133,42 @@ export default function SearchResultsPage() {
                       </div>
                     </div>
                   )}
-
-                  {selectedBusiness.price && (
-                    <div className="flex gap-3 border-t border-zinc-50 pt-4">
-                      <Sparkles className="h-5 w-5 text-zinc-400 shrink-0 mt-0.5" />
-                      <div className="flex flex-col gap-1">
-                        <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider">Price Index</span>
-                        <span className="text-xs text-zinc-800 font-bold font-mono">
-                          {selectedBusiness.price}
-                        </span>
-                      </div>
-                    </div>
-                  )}
                 </div>
 
                 {selectedBusiness.additionalData && (
-                  <div className="border-t border-zinc-100 pt-6 flex flex-col gap-2">
-                    <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider">Metadata Parameters</span>
-                    <pre className="bg-zinc-50 border border-zinc-200 p-3 rounded-[2px] text-[10px] font-mono text-zinc-600 overflow-x-auto whitespace-pre-wrap">
+                  <div className="border-t border-slate-800 pt-6 flex flex-col gap-2">
+                    <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">Metadata</span>
+                    <pre className="bg-[#0f1117] border border-slate-800 p-3 rounded-lg text-[10px] font-mono text-slate-300 overflow-x-auto whitespace-pre-wrap">
                       {JSON.stringify(selectedBusiness.additionalData, null, 2)}
                     </pre>
                   </div>
                 )}
               </div>
 
-              {/* Drawer Footer controls */}
-              <div className="p-6 border-t border-[var(--color-border-custom)] bg-zinc-50 flex items-center gap-3">
+              {/* Drawer Footer */}
+              <div className="p-4 md:p-6 border-t border-slate-800 bg-[#0f1117] flex items-center gap-3">
                 {selectedBusiness.website && (
                   <a
                     href={selectedBusiness.website}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex-1 text-center py-2.5 bg-[var(--color-primary)] hover:bg-[var(--color-tertiary)] text-white text-xs font-mono rounded-[2px] transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="flex-1 text-center py-2.5 bg-purple-600 hover:bg-purple-500 text-white text-xs font-mono rounded-lg transition-colors flex items-center justify-center gap-1.5"
                   >
                     VISIT WEBSITE
                     <ExternalLink className="h-3.5 w-3.5" />
                   </a>
                 )}
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
+                <button
                   onClick={() => setSelectedBusiness(null)}
-                  className="flex-1 py-2.5 border border-[var(--color-border-custom)] bg-white text-zinc-700 text-xs font-mono rounded-[2px] hover:bg-zinc-100 transition-colors cursor-pointer"
+                  className="flex-1 py-2.5 border border-slate-700 bg-[#161922] text-slate-300 text-xs font-mono rounded-lg hover:bg-slate-800 transition-colors"
                 >
-                  CLOSE PANEL
-                </motion.button>
+                  CLOSE
+                </button>
               </div>
-
             </motion.div>
           </>
         )}
       </AnimatePresence>
-
-      {/* Footer bar */}
-      <motion.footer
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.3, duration: 0.5 }}
-        className="w-full py-6 px-6 text-center border-t border-[var(--color-border-custom)] bg-zinc-50 mt-auto"
-      >
-        <p className="text-xs text-zinc-500 font-mono">
-          AETHER SC-DATAENGINE // COMPLIANCE AND rate limiting BOUNDARIES APPLIED
-        </p>
-      </motion.footer>
     </div>
   );
 }

@@ -29,3 +29,6 @@ class PlaceRecord(BaseModel):
     business_status: Optional[str] = None
     source: str = "Google Places API (New)"
     retrieved_at: Optional[str] = None
+    # Geographic validation fields
+    distance_km: Optional[float] = None
+    location_match_score: Optional[float] = None

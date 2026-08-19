@@ -74,12 +74,15 @@ class BusinessRecordOut(BaseModel):
     source_url: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    distance_km: Optional[float] = None
+    location_match_score: Optional[float] = None
 
 
 class JobResultsResponse(BaseModel):
     job_id: str
     status: str
     records: list[BusinessRecordOut]
+    debug_info: Optional[dict] = None
 
 
 # ---------------------------------------------------------------------------
@@ -96,6 +99,7 @@ class Job:
         self.records_found: int = 0
         self.error: Optional[str] = None
         self.results: list[BusinessRecordOut] = []
+        self.debug_info: Optional[dict] = None
 
     def to_progress(self) -> JobProgress:
         return JobProgress(
@@ -193,12 +197,16 @@ def _run_engine(query: str, limit: int, job: Job) -> None:
                     source_url=r.google_maps_url,
                     latitude=r.latitude,
                     longitude=r.longitude,
+                    distance_km=r.distance_km,
+                    location_match_score=r.location_match_score,
                 )
             )
 
         job.results = out_records
         job.records_found = len(out_records)
+        job.debug_info = plan.debug_info
         job.status = "completed"
+
         job.stage = "Completed"
         job.progress = 100
 
@@ -277,6 +285,7 @@ async def get_job_results(job_id: str):
         job_id=job.job_id,
         status=job.status,
         records=job.results,
+        debug_info=job.debug_info,
     )
 
 

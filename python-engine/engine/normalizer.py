@@ -66,6 +66,11 @@ def normalize_place(raw: dict, plan: SearchPlan) -> PlaceRecord:
             area = parts[-3]
 
     raw_phone = raw.get("nationalPhoneNumber") or raw.get("internationalPhoneNumber")
+
+    # Always extract coordinates (field mask now always includes places.location).
+    lat = location.get("latitude") if location else None
+    lng = location.get("longitude") if location else None
+
     return PlaceRecord(
         place_id=raw.get("id"),
         business_name=normalize_text(display.get("text")),
@@ -80,8 +85,8 @@ def normalize_place(raw: dict, plan: SearchPlan) -> PlaceRecord:
         phone_national=normalize_phone_national(raw_phone),
         website=normalize_website(raw.get("websiteUri")),
         google_maps_url=raw.get("googleMapsUri"),
-        latitude=(location.get("latitude") if location else None),
-        longitude=(location.get("longitude") if location else None),
+        latitude=lat,
+        longitude=lng,
         rating=raw.get("rating"),
         review_count=raw.get("userRatingCount"),
         business_status=raw.get("businessStatus"),
