@@ -216,7 +216,7 @@ export async function getSearchJobs(): Promise<SearchJob[]> {
       const jobs = await prisma.searchJob.findMany({
         orderBy: { createdAt: "desc" },
       });
-      return jobs.map((j) => ({
+      return jobs.map((j: any) => ({
         ...j,
         status: j.status as JobStatus,
       }));
@@ -396,7 +396,7 @@ export async function getJobResults(jobId: string): Promise<Business[]> {
         where: { jobId },
         include: { business: true },
       });
-      return results.map((r) => ({
+      return results.map((r: any) => ({
         ...r.business,
         additionalData: r.business.additionalData,
       } as Business));

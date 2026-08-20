@@ -6,8 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
-    "dev:engine": "cd python-engine && .venv\\Scripts\\activate && uvicorn server:app --reload --port 8000"
+    "lint": "eslint"
   },
   "dependencies": {
     "@prisma/client": "^7.9.1",

@@ -43,8 +43,8 @@ next-env.d.ts
 # local JSON database fallback
 /.data/
 
-# Python scraper service virtual environment
-/scraper-service/.venv/
-/scraper-service/__pycache__/
-/scraper-service/scraper/__pycache__/
-/scraper-service/scraper/sources/__pycache__/
+# python
+.venv/
+__pycache__/
+*.pyc
+

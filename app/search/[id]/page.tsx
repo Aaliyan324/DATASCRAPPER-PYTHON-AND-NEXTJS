@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, Variants } from "framer-motion";
 import {
   ArrowLeft,
   Download,
@@ -35,10 +35,10 @@ import {
 } from "lucide-react";
 import { exportToExcel, exportToPDF, exportToCSV } from "@/lib/exporter";
 import { SearchJob, Business } from "@/lib/db";
-import { SearchQuery } from "@/lib/query-parser";
+import { SearchPlan } from "@/lib/data-engine";
 
 interface ParsedQueryData {
-  query: SearchQuery;
+  query: SearchPlan;
   progress?: {
     stage: string;
     detail: string;
@@ -57,7 +57,7 @@ const STAGES = [
 ];
 
 // Animation Variants
-const containerVariants = {
+const containerVariants: Variants = {
   hidden: { opacity: 0 },
   visible: {
     opacity: 1,
@@ -68,7 +68,7 @@ const containerVariants = {
   },
 };
 
-const itemVariants = {
+const itemVariants: Variants = {
   hidden: { y: 20, opacity: 0 },
   visible: {
     y: 0,
@@ -77,7 +77,7 @@ const itemVariants = {
   },
 };
 
-const fadeInUp = {
+const fadeInUp: Variants = {
   hidden: { y: 20, opacity: 0 },
   visible: {
     y: 0,
@@ -86,7 +86,7 @@ const fadeInUp = {
   },
 };
 
-const drawerVariants = {
+const drawerVariants: Variants = {
   hidden: { x: "100%" },
   visible: {
     x: 0,
@@ -98,13 +98,13 @@ const drawerVariants = {
   },
 };
 
-const backdropVariants = {
+const backdropVariants: Variants = {
   hidden: { opacity: 0 },
   visible: { opacity: 0.5 },
   exit: { opacity: 0 },
 };
 
-const filterPanelVariants = {
+const filterPanelVariants: Variants = {
   hidden: { height: 0, opacity: 0 },
   visible: {
     height: "auto",
@@ -437,7 +437,7 @@ export default function SearchResultsPage() {
                 <div className="flex items-center gap-2 text-xs">
                   <MapPin className="h-3 w-3 text-purple-400 shrink-0" />
                   <span className="text-slate-300 font-mono">
-                    {decodedQuery.query.location.query || decodedQuery.query.location.city || "Pakistan"}
+                    {decodedQuery.query.location.city || decodedQuery.query.location.locality || decodedQuery.query.location.housing_society || decodedQuery.query.location.district || decodedQuery.query.location.province || "Pakistan"}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 text-xs">
@@ -447,7 +447,7 @@ export default function SearchResultsPage() {
                   </span>
                 </div>
                 <div className="flex flex-wrap gap-1.5 mt-1">
-                  {decodedQuery.query.requested_fields.map((f, i) => (
+                  {(decodedQuery.query.fields ?? []).map((f, i) => (
                     <span key={i} className="bg-slate-800 px-2 py-0.5 rounded text-[10px] text-slate-300 font-mono">
                       {f}
                     </span>
@@ -661,7 +661,7 @@ export default function SearchResultsPage() {
               >
                 {[
                   { label: "Total Records", value: filteredAndSortedBusinesses.length, sub: `of ${results.length} total found` },
-                  { label: "Location Target", value: decodedQuery?.query.location.query || decodedQuery?.query.location.city || "Pakistan", sub: `Filtered: ${filterCity === "all" ? "All Cities" : filterCity}` },
+                  { label: "Location Target", value: decodedQuery?.query.location.city || decodedQuery?.query.location.locality || decodedQuery?.query.location.district || "Pakistan", sub: `Filtered: ${filterCity === "all" ? "All Cities" : filterCity}` },
                   { label: "Target Category", value: decodedQuery?.query.category || "Business", sub: `Filtered: ${filterCategory === "all" ? "All" : filterCategory}` },
                   { label: "Data Coverage", value: `${Math.round(((results.filter(r => r.phone).length + results.filter(r => r.website).length) / (results.length * 2 || 1)) * 100)}%`, sub: "Contact detail availability" }
                 ].map((metric, idx) => (
