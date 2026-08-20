@@ -18,9 +18,10 @@ enum JobStatus {
 
 model SearchJob {
   id              String      @id @default(cuid())
+  userId          String?     // Clerk user ID (null = anonymous / legacy)
   originalCommand String
-  parsedQuery     String?     // JSON string of ParsedQuery
-  pythonJobId     String?     // Maps to Python scraper service job ID
+  parsedQuery     String?     // JSON string of ParsedQuery / SearchPlan
+  pythonJobId     String?     // Legacy: was Python scraper job ID
   status          JobStatus   @default(PENDING)
   totalResults    Int         @default(0)
   progress        Int         @default(0)
@@ -31,6 +32,8 @@ model SearchJob {
   completedAt     DateTime?
   error           String?
   results         JobResult[]
+
+  @@index([userId])
 }
 
 model Business {

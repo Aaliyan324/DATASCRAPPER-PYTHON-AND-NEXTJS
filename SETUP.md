@@ -1,207 +1,326 @@
-# Setup Guide
+# 🚀 Aether AI — Setup & Architecture Guide
+
+> Pakistan Business Data Discovery Engine powered by Google Places API, Gemini AI, and Clerk Authentication.
+
+---
+
+## Table of Contents
+
+1. [Prerequisites](#prerequisites)
+2. [Quick Start](#quick-start)
+3. [Environment Variables](#environment-variables)
+   - [Clerk Authentication](#clerk-authentication-setup)
+   - [Google Maps Platform](#google-maps-platform-setup)
+   - [Gemini AI](#gemini-ai-setup)
+   - [Database (PostgreSQL)](#database-postgresql-setup)
+4. [Database Migration](#database-migration)
+5. [How It Works](#how-it-works)
+6. [Architecture Diagram](#architecture-diagram)
+7. [Example Queries](#example-queries)
+8. [Troubleshooting](#troubleshooting)
+
+---
 
 ## Prerequisites
 
-- **Node.js** 18+ (tested with Next.js 16)
-- **Python** 3.11+ 
-- **npm** or **yarn**
+| Tool | Version | Purpose |
+|------|---------|---------|
+| **Node.js** | ≥ 18.x | Runtime |
+| **npm** | ≥ 9.x | Package manager |
+| **PostgreSQL** | ≥ 14 (optional) | Persistent database |
+| **Clerk account** | Free | Authentication |
+| **Google Cloud account** | Free tier | Places + Geocoding API |
+| **Google AI Studio** | Free | Gemini AI (optional) |
 
 ---
 
-## Project Structure
-
-```
-datascrapper-master/
-├── app/                    # Next.js frontend + API routes
-├── lib/                    # Shared utilities (DB, query parser, exporter)
-├── components/             # React components
-├── prisma/                 # Prisma schema (PostgreSQL)
-├── python-engine/          # Python Data Engine (FastAPI + Google Places + Gemini)
-│   ├── server.py           # FastAPI server entry point
-│   ├── main.py             # CLI entry point (standalone use)
-│   ├── config.py           # Pydantic settings (reads python-engine/.env)
-│   ├── ai/                 # Gemini NLP query parser
-│   ├── engine/             # Search engine, normalizer, deduplicator
-│   ├── sources/            # Google Places API client
-│   ├── models/             # Data models (PlaceRecord)
-│   ├── pakistan/           # Pakistan-specific location resolution
-│   └── exporters/          # Excel/PDF export (standalone CLI use)
-├── .env.example            # Next.js environment template
-└── python-engine/.env.example  # Python engine environment template
-```
-
----
-
-## 1. Install Dependencies
-
-### Node.js (frontend + API)
+## Quick Start
 
 ```bash
+# 1. Clone the repository
+git clone https://github.com/Aaliyan324/DATASCRAPPER-PYTHON-AND-NEXTJS
+cd DATASCRAPPER-PYTHON-AND-NEXTJS
+
+# 2. Install Node dependencies (no Python required)
 npm install
-```
 
-### Python (data engine)
+# 3. Copy the environment template
+cp .env.example .env.local
 
-```bash
-cd python-engine
-python -m venv .venv
-.venv\Scripts\activate        # Windows
-# source .venv/bin/activate   # macOS/Linux
-pip install -r requirements.txt
-```
+# 4. Fill in your keys in .env.local (see sections below)
+#    REQUIRED: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY, CLERK_SECRET_KEY, GOOGLE_MAPS_API_KEY
+#    OPTIONAL: GEMINI_API_KEY, DATABASE_URL
 
----
+# 5. Generate Prisma client (and migrate if using PostgreSQL)
+npx prisma generate
+# If using PostgreSQL:
+npx prisma migrate dev --name init
 
-## 2. API Keys
-
-The project uses **two separate `.env` files** — one for the Next.js app, one for the Python engine. API keys live only in the Python engine and are never exposed to the browser.
-
-### Python Engine (`python-engine/.env`)
-
-Copy the template and fill in your keys:
-
-```bash
-cd python-engine
-cp .env.example .env
-```
-
-| Variable | Required | Description |
-|---|---|---|
-| `GEMINI_API_KEY` | **Yes** | Google AI Studio API key for Gemini NLP. Get one at [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
-| `GOOGLE_MAPS_API_KEY` | **Yes** | Google Maps Platform API key with **Places API (New)** enabled. Get one at [console.cloud.google.com](https://console.cloud.google.com/apis/credentials) |
-| `GEMINI_MODEL` | No | Defaults to `gemini-2.5-flash`. Change if needed. |
-| `REQUEST_TIMEOUT` | No | HTTP timeout in seconds for Google Places calls (default: `20`) |
-| `MAX_SEARCH_VARIANTS` | No | Max search query variants the engine generates (default: `4`) |
-| `DEBUG` | No | Set to `true` for verbose logging (default: `false`) |
-
-### Next.js App (`.env` at project root)
-
-Copy the template:
-
-```bash
-cp .env.example .env
-```
-
-| Variable | Required | Description |
-|---|---|---|
-| `DATABASE_URL` | No | PostgreSQL connection string (e.g. Supabase). If omitted, the app falls back to a local JSON file at `.data/db.json` |
-| `PYTHON_ENGINE_URL` | **Yes** | URL of the running Python engine. Default: `http://localhost:8000` |
-
-### Google Maps API Key Setup
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a project (or select an existing one)
-3. Enable the **Places API (New)** under APIs & Services > Library
-4. Create an API key under APIs & Services > Credentials
-5. (Recommended) Restrict the key to the Places API only
-6. Paste the key into `python-engine/.env` as `GOOGLE_MAPS_API_KEY`
-
----
-
-## 3. Database Setup (Optional)
-
-The app works **without a database** — it falls back to a JSON file at `.data/db.json`.
-
-To use PostgreSQL (e.g. Supabase):
-
-1. Set `DATABASE_URL` in your root `.env`
-2. Generate the Prisma client:
-   ```bash
-   npx prisma generate
-   ```
-3. Push the schema to your database:
-   ```bash
-   npx prisma db push
-   ```
-
----
-
-## 4. Start the Application
-
-You need **two processes** running simultaneously:
-
-### Terminal 1 — Python Data Engine (port 8000)
-
-```bash
-cd python-engine
-.venv\Scripts\activate        # Windows
-# source .venv/bin/activate   # macOS/Linux
-uvicorn server:app --reload --port 8000
-```
-
-Or use the npm shortcut (Windows only):
-
-```bash
-npm run dev:engine
-```
-
-Verify it's running:
-
-```bash
-curl http://localhost:8000/health
-# → {"status":"ok","service":"pakistan-data-engine"}
-```
-
-### Terminal 2 — Next.js App (port 3000)
-
-```bash
+# 6. Start the development server
 npm run dev
+
+# 7. Open http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+---
+
+## Environment Variables
+
+Create `.env.local` in the project root (never commit this file):
+
+```env
+# Clerk Authentication
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
+CLERK_SECRET_KEY=sk_test_...
+NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
+NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
+NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/
+NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/
+
+# Google APIs
+GOOGLE_MAPS_API_KEY=AIzaSy_...
+
+# Gemini AI (optional)
+GEMINI_API_KEY=AIzaSy_...
+
+# PostgreSQL (optional — falls back to local JSON file)
+DATABASE_URL=postgresql://postgres:password@localhost:5432/datascrapper
+```
 
 ---
 
-## 5. Usage
+### Clerk Authentication Setup
 
-1. Open the app at `http://localhost:3000`
-2. Type a natural-language search query, e.g.:
-   - *"Find restaurants in Lahore"*
-   - *"Hotels near Faisal Mosque Karachi"*
-   - *"Beauty salons in Gujarat"*
-3. The app sends your query to the Python engine, which:
-   - Parses intent using **Gemini NLP** (handles English, Urdu, and Roman Urdu)
-   - Searches **Google Places API (New)** with smart query variants
-   - Normalizes phone numbers, addresses, and deduplicates results
-4. Results appear in a searchable, filterable table
-5. Export to **CSV**, **Excel**, or **PDF**
+1. Go to [https://clerk.com](https://clerk.com) and create a **free account**
+2. Click **"Add application"** → give it a name (e.g. `Aether AI`) → choose **Email + Google** sign-in methods
+3. Go to **API Keys** in the left sidebar
+4. Copy:
+   - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` → starts with `pk_test_`
+   - `CLERK_SECRET_KEY` → starts with `sk_test_`
+5. Paste into `.env.local`
+
+> **Note**: No billing required. Clerk's free tier supports 10,000 Monthly Active Users.
 
 ---
 
-## 6. Using the Python Engine Standalone (CLI)
+### Google Maps Platform Setup
 
-The engine can also be run directly from the terminal without the Next.js frontend:
+1. Go to [https://console.cloud.google.com](https://console.cloud.google.com)
+2. Create a new project (or select an existing one)
+3. Go to **APIs & Services → Library** and enable:
+   - ✅ **Places API (New)** — for business data search
+   - ✅ **Geocoding API** — for location resolution
+4. Go to **APIs & Services → Credentials → Create Credentials → API key**
+5. (Recommended) Restrict the key to: `Places API (New)` and `Geocoding API`
+6. Copy the key into `.env.local` as `GOOGLE_MAPS_API_KEY`
+
+> **Cost**: Google offers $200/month free credit. Each Places Text Search call costs ~$0.032. At 3 pages × 20 results = 60 results per query, 100-result searches typically use 5–10 API calls (~$0.16–$0.32 per search).
+
+---
+
+### Gemini AI Setup
+
+1. Go to [https://aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
+2. Click **"Create API Key"**
+3. Copy into `.env.local` as `GEMINI_API_KEY`
+
+> **Without Gemini**: The app uses a deterministic regex-based parser as fallback. Basic English queries (e.g., "restaurants in Lahore") work perfectly. Complex Urdu/Roman Urdu queries need Gemini.
+
+---
+
+### Database (PostgreSQL) Setup
+
+#### Option A: Local PostgreSQL
 
 ```bash
-cd python-engine
-.venv\Scripts\activate
-python main.py
+# Install PostgreSQL (if not already installed)
+# Windows: https://www.postgresql.org/download/windows/
+
+# Create the database
+psql -U postgres -c "CREATE DATABASE datascrapper;"
+
+# Set in .env.local:
+DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@localhost:5432/datascrapper
 ```
 
-This launches an interactive CLI where you can enter queries and export results directly.
+#### Option B: Supabase (Free Cloud PostgreSQL)
+
+1. Go to [https://supabase.com](https://supabase.com) → New project
+2. Go to **Project Settings → Database → Connection String → URI**
+3. Copy the URI and set it as `DATABASE_URL` in `.env.local`
+
+#### Option C: No Database (JSON Fallback)
+
+Leave `DATABASE_URL` unset. The app will use a local `.data/db.json` file automatically. Data is stored on the server filesystem — suitable for development only.
+
+---
+
+## Database Migration
+
+After setting `DATABASE_URL`:
+
+```bash
+# Create the tables (first time setup)
+npx prisma migrate dev --name init
+
+# After future schema changes
+npx prisma migrate dev --name describe_the_change
+
+# View the database in a browser GUI
+npx prisma studio
+```
+
+---
+
+## How It Works
+
+### Authentication Flow
+
+```
+User visits / → Clerk checks session cookie
+  ├─ Signed in   → Show search form + personal history sidebar
+  └─ Not signed in → Show landing CTA (Sign In / Get Started)
+
+POST /api/search → Clerk auth() extracts userId
+  ├─ No userId → 401 Unauthorized
+  └─ Has userId → Create SearchJob with userId → background search
+```
+
+### Search Flow
+
+```
+User types: "200 restaurants in DHA Lahore with phone numbers"
+      │
+      ▼
+[Gemini API] (or regex fallback)
+  Extracts: category="restaurant", location=DHA Lahore, count=200
+      │
+      ▼
+[Location Resolver] → Google Geocoding API
+  Resolves: lat/lng of DHA Lahore
+      │
+      ▼
+[Search Orchestrator]
+  Generates: ~80 queries across 20 DHA sub-zones × 4 phrasings
+  Example queries:
+    "restaurant in DHA Phase 1 Lahore, Pakistan"
+    "restaurants near DHA Phase 1 Lahore"
+    "best restaurant DHA Phase 1 Lahore"
+    ...
+      │
+      ▼
+[Google Places API (New)] — Text Search
+  5 concurrent queries · 3 pages each · 60 results per query
+  Total raw results: up to 4,800 unique place IDs
+      │
+      ▼
+[Deduplicator] — Multi-field dedup (place_id, phone, name+address)
+[Ranker] — Haversine distance scoring + data quality scoring
+[Slicer] — Top 200 results returned
+      │
+      ▼
+[PostgreSQL via Prisma] (or JSON fallback)
+  Saved: Business records linked to SearchJob.userId
+      │
+      ▼
+[Client polls /api/search/:id] → streams progress to UI
+[User exports] → Excel / CSV / PDF
+```
+
+### Per-User Data Isolation
+
+Every `SearchJob` record stores the Clerk `userId`. API routes validate:
+- `GET /api/history` → only returns jobs where `userId = currentUser`
+- `GET /api/search/:id` → returns 403 if job belongs to different user
+- `GET /api/search/:id/results` → same ownership check
+
+---
+
+## Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Next.js App Router                      │
+│                                                             │
+│  app/                                                       │
+│  ├─ layout.tsx          ← ClerkProvider (dark theme)        │
+│  ├─ page.tsx            ← Landing + UserButton              │
+│  ├─ sign-in/            ← Clerk <SignIn /> component        │
+│  ├─ sign-up/            ← Clerk <SignUp /> component        │
+│  ├─ search/[id]/        ← Results page                      │
+│  └─ api/                                                    │
+│     ├─ search/          ← POST (auth required, userId saved)│
+│     ├─ search/[id]/     ← GET (ownership check)             │
+│     ├─ search/[id]/results/ ← GET (ownership check)         │
+│     └─ history/         ← GET (user-scoped)                 │
+│                                                             │
+│  middleware.ts           ← clerkMiddleware (protects /api)  │
+└──────────────────┬──────────────────────────────────────────┘
+                   │
+        ┌──────────▼──────────┐
+        │  lib/data-engine/   │
+        │                     │
+        │  index.ts           │  ← Engine entrypoint
+        │  search-orchestrator│  ← Zone partitioning + loop
+        │  google-places.ts   │  ← Places API (New) client
+        │  ai/query-understanding  ← Gemini + fallback
+        │  location-resolver  │  ← Geocoding API
+        │  query-expander     │  ← Query variant generation
+        │  deduplicator       │  ← Multi-field dedup
+        │  ranking.ts         │  ← Haversine + quality score
+        └──────────┬──────────┘
+                   │
+        ┌──────────▼──────────┐
+        │      lib/db.ts      │
+        │                     │
+        │  Prisma ORM ──────── PostgreSQL (production)
+        │  JSON fallback ───── .data/db.json (development)
+        └─────────────────────┘
+```
+
+---
+
+## Example Queries
+
+Try these after signing in:
+
+| Query | What it does |
+|-------|-------------|
+| `restaurants in Lahore` | Top 100 restaurants across Lahore zones |
+| `200 hotels in Karachi with phone numbers` | 200 hotels, phone-prioritised ranking |
+| `software houses in Islamabad F-7 with websites` | F-7/F-8 tech companies |
+| `dentists in DHA Karachi` | Dental clinics in DHA zones |
+| `bakeries in Gulberg Lahore` | Hyperlocal bakery search |
+| `hospitals in Rawalpindi with ratings above 4` | High-rated hospitals |
+| `private schools in Faisalabad` | School directory |
+| `pharmacies near Blue Area Islamabad` | Proximity-ranked pharmacies |
 
 ---
 
 ## Troubleshooting
 
-| Problem | Fix |
-|---|---|
-| `Could not connect to the data engine` | Make sure the Python engine is running on port 8000 |
-| `GEMINI_API_KEY` validation error | Check that `python-engine/.env` exists and has your key |
-| `GOOGLE_MAPS_API_KEY` validation error | Same as above — both keys must be in `python-engine/.env` |
-| No phone numbers in results | Ensure **Places API (New)** is enabled (not the legacy Places API) |
-| Prisma client errors | Run `npx prisma generate` |
-| Port 8000 in use | Change the port in both the engine startup command and `PYTHON_ENGINE_URL` in your root `.env` |
+### "You must be signed in" on the homepage
+→ Clerk is working correctly. Click **Get Started** to create an account.
 
----
+### No results returned
+1. Check `GOOGLE_MAPS_API_KEY` is set and **Places API (New)** is enabled in GCP
+2. Check the browser console / server terminal for API errors
+3. Make sure the query has both a **category** and a **location** (e.g., `cafes in Lahore`)
 
-## Environment Files Summary
-
-```
-datascrapper-master/
-├── .env                        # Next.js — DATABASE_URL, PYTHON_ENGINE_URL
-└── python-engine/
-    └── .env                    # Python — GEMINI_API_KEY, GOOGLE_MAPS_API_KEY
+### "Prisma Client not found" error
+```bash
+npx prisma generate
 ```
 
-**API keys are never exposed to the browser.** They are loaded server-side only by the Python engine's pydantic-settings.
+### Database connection refused
+→ Either start your local PostgreSQL service, or remove `DATABASE_URL` from `.env.local` to use the JSON fallback.
+
+### Clerk redirect loop
+→ Ensure `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` are both set and match the same Clerk application.
+
+### Port already in use
+```bash
+# Kill whatever is on port 3000
+npx kill-port 3000
+npm run dev
+```

@@ -7,6 +7,7 @@ export type JobStatus = "PENDING" | "PARSING" | "SCRAPING" | "COMPLETED" | "ERRO
 
 export interface SearchJob {
   id: string;
+  userId: string | null;
   originalCommand: string;
   parsedQuery: string | null;
   pythonJobId: string | null;
@@ -108,7 +109,7 @@ if (isDatabaseConfigured) {
 
 export const isDemoDb = !prisma;
 
-export async function createSearchJob(originalCommand: string): Promise<SearchJob> {
+export async function createSearchJob(originalCommand: string, userId?: string | null): Promise<SearchJob> {
   const jobId = `job_${Math.random().toString(36).substring(2, 11)}`;
   const now = new Date();
 
@@ -118,11 +119,13 @@ export async function createSearchJob(originalCommand: string): Promise<SearchJo
         data: {
           id: jobId,
           originalCommand,
+          userId: userId || null,
           status: "PENDING",
         },
       });
       return {
         ...job,
+        userId: job.userId || null,
         status: job.status as JobStatus,
       };
     } catch (e) {
@@ -134,6 +137,7 @@ export async function createSearchJob(originalCommand: string): Promise<SearchJo
   const db = initializeJsonDb();
   const newJob: SearchJob = {
     id: jobId,
+    userId: userId || null,
     originalCommand,
     parsedQuery: null,
     pythonJobId: null,
@@ -210,14 +214,17 @@ export async function getSearchJob(jobId: string): Promise<SearchJob | null> {
   return job || null;
 }
 
-export async function getSearchJobs(): Promise<SearchJob[]> {
+export async function getSearchJobs(userId?: string | null): Promise<SearchJob[]> {
   if (prisma) {
     try {
+      const where = userId ? { userId } : {};
       const jobs = await prisma.searchJob.findMany({
+        where,
         orderBy: { createdAt: "desc" },
       });
       return jobs.map((j: any) => ({
         ...j,
+        userId: j.userId || null,
         status: j.status as JobStatus,
       }));
     } catch (e) {
@@ -227,7 +234,8 @@ export async function getSearchJobs(): Promise<SearchJob[]> {
 
   // JSON Fallback
   const db = initializeJsonDb();
-  return db.jobs;
+  const jobs = userId ? db.jobs.filter((j) => j.userId === userId) : db.jobs;
+  return jobs;
 }
 
 export async function saveBusinesses(

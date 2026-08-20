@@ -21,7 +21,15 @@ import {
   Image as ImageIcon,
   SidebarClose,
   SidebarOpen,
+  LogIn,
 } from "lucide-react";
+import {
+  SignInButton,
+  SignUpButton,
+  UserButton,
+  useUser,
+  useAuth,
+} from "@clerk/nextjs";
 
 interface HistoryJob {
   id: string;
@@ -58,6 +66,9 @@ const SUGGESTIONS = [
 
 export default function Home() {
   const router = useRouter();
+  const { isSignedIn, user } = useUser();
+  const { isLoaded } = useAuth();
+
   const [command, setCommand] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [history, setHistory] = useState<HistoryJob[]>([]);
@@ -65,21 +76,20 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   React.useEffect(() => {
+    if (!isSignedIn) return;
     async function fetchHistory() {
       try {
         const res = await fetch("/api/history");
         if (res.ok) {
           const data = await res.json();
-          if (data.success) {
-            setHistory(data.jobs || []);
-          }
+          if (data.success) setHistory(data.jobs || []);
         }
       } catch (err) {
         console.error("Failed to load search history", err);
       }
     }
     fetchHistory();
-  }, []);
+  }, [isSignedIn]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -91,12 +101,8 @@ export default function Home() {
     try {
       const res = await fetch("/api/search", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          command: command.trim(),
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ command: command.trim() }),
       });
 
       const data = await res.json();
@@ -113,9 +119,14 @@ export default function Home() {
     }
   };
 
-  const handleExampleClick = (text: string) => {
-    setCommand(text);
-  };
+  const handleExampleClick = (text: string) => setCommand(text);
+
+  // Friendly greeting using Clerk user's first name
+  const greeting = isSignedIn && user?.firstName
+    ? `Hello, ${user.firstName}`
+    : isSignedIn
+    ? "Welcome back"
+    : "Hello there";
 
   return (
     <div className="flex h-screen w-full bg-[#0f1117] text-[#e2e8f0] font-sans antialiased overflow-hidden relative">
@@ -165,13 +176,43 @@ export default function Home() {
             </button>
           </div>
 
-          {/* Clean History Feed */}
+          {/* User section in sidebar */}
+          {isLoaded && (
+            <div className="flex items-center gap-2.5 px-1">
+              {isSignedIn ? (
+                <>
+                  <UserButton />
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-xs font-medium text-slate-200 truncate">
+                      {user?.fullName || user?.username || "User"}
+                    </span>
+                    <span className="text-[10px] text-slate-500 font-mono truncate">
+                      {user?.primaryEmailAddress?.emailAddress}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <SignInButton mode="modal">
+                  <button className="flex items-center gap-2 text-xs text-purple-300 hover:text-purple-200 font-medium transition-colors">
+                    <LogIn className="h-3.5 w-3.5" />
+                    Sign in to save history
+                  </button>
+                </SignInButton>
+              )}
+            </div>
+          )}
+
+          {/* History Feed */}
           <div className="flex-1 overflow-y-auto flex flex-col gap-2 pr-1">
             <span className="text-[11px] font-mono text-slate-400 uppercase tracking-wider px-1">
               Recent Activity
             </span>
 
-            {history.length === 0 ? (
+            {!isSignedIn ? (
+              <p className="text-xs text-slate-500 font-mono italic px-1">
+                Sign in to see your history
+              </p>
+            ) : history.length === 0 ? (
               <p className="text-xs text-slate-500 font-mono italic px-1">
                 No past tasks
               </p>
@@ -214,6 +255,33 @@ export default function Home() {
               <span className="text-purple-200 font-medium">Aether Engine v2.4</span>
             </div>
           </div>
+
+          {/* Header Auth Controls */}
+          {isLoaded && (
+            <div className="flex items-center gap-2">
+              {isSignedIn ? (
+                <div className="flex items-center gap-2">
+                  <span className="hidden sm:block text-xs text-slate-400 font-mono">
+                    {user?.primaryEmailAddress?.emailAddress}
+                  </span>
+                  <UserButton />
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <SignInButton mode="modal">
+                    <button className="px-3 py-1.5 text-xs font-medium text-slate-300 hover:text-slate-100 border border-slate-700 hover:border-slate-500 rounded-lg transition-colors">
+                      Sign in
+                    </button>
+                  </SignInButton>
+                  <SignUpButton mode="modal">
+                    <button className="px-3 py-1.5 text-xs font-medium text-white bg-purple-600 hover:bg-purple-500 rounded-lg transition-colors shadow-md">
+                      Get started
+                    </button>
+                  </SignUpButton>
+                </div>
+              )}
+            </div>
+          )}
         </header>
 
         {/* CHAT MAIN CONTENT AREA */}
@@ -230,125 +298,139 @@ export default function Home() {
             {/* Title Section */}
             <div className="flex flex-col gap-1.5 px-2">
               <h2 className="text-base md:text-xl font-medium text-purple-400">
-                Hello, Muhammad
+                {greeting}
               </h2>
               <h1 className="text-xl sm:text-2xl md:text-4xl font-light tracking-tight text-slate-100">
-                How can I assist you today?
+                {isSignedIn
+                  ? "How can I assist you today?"
+                  : "Pakistan Business Data Discovery"}
               </h1>
+              {!isSignedIn && (
+                <p className="text-sm text-slate-400 mt-1">
+                  Sign in to search hundreds of businesses across Pakistan — restaurants, hotels, clinics, and more.
+                </p>
+              )}
             </div>
 
-            {/* Central Main Input Card */}
-            <div className="w-full flex flex-col gap-3">
-              <form
-                onSubmit={handleSubmit}
-                className="w-full bg-[#161922] border border-slate-700/70 rounded-xl p-3.5 md:p-4 shadow-xl focus-within:border-purple-500/80 transition-all flex flex-col gap-3 md:gap-4"
-              >
-                <textarea
-                  value={command}
-                  onChange={(e) => setCommand(e.target.value)}
-                  disabled={isSubmitting}
-                  placeholder="Ask me anything or enter extraction parameters..."
-                  rows={3}
-                  className="w-full bg-transparent border-0 outline-none resize-none text-xs md:text-sm text-slate-100 placeholder-slate-500 font-medium"
-                />
+            {/* Search form — only for signed-in users */}
+            {isSignedIn ? (
+              <div className="w-full flex flex-col gap-3">
+                <form
+                  onSubmit={handleSubmit}
+                  className="w-full bg-[#161922] border border-slate-700/70 rounded-xl p-3.5 md:p-4 shadow-xl focus-within:border-purple-500/80 transition-all flex flex-col gap-3 md:gap-4"
+                >
+                  <textarea
+                    value={command}
+                    onChange={(e) => setCommand(e.target.value)}
+                    disabled={isSubmitting}
+                    placeholder="Ask me anything or enter extraction parameters..."
+                    rows={3}
+                    className="w-full bg-transparent border-0 outline-none resize-none text-xs md:text-sm text-slate-100 placeholder-slate-500 font-medium"
+                  />
 
-                {/* Inner Action Bar */}
-                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800">
-                  <div className="flex items-center gap-1.5 md:gap-2">
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-purple-950/50 border border-purple-700/50 rounded-full text-[11px] md:text-xs text-purple-300 font-medium">
-                      <Sparkles className="h-3 w-3 md:h-3.5 md:w-3.5 text-purple-400" />
-                      Deeper Research
+                  {/* Inner Action Bar */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800">
+                    <div className="flex items-center gap-1.5 md:gap-2">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-purple-950/50 border border-purple-700/50 rounded-full text-[11px] md:text-xs text-purple-300 font-medium">
+                        <Sparkles className="h-3 w-3 md:h-3.5 md:w-3.5 text-purple-400" />
+                        Deeper Research
+                      </span>
+                      <button type="button" className="p-1.5 text-slate-400 hover:text-slate-200 rounded-md transition-colors">
+                        <ImageIcon className="h-4 w-4" />
+                      </button>
+                      <button type="button" className="p-1.5 text-slate-400 hover:text-slate-200 rounded-md transition-colors">
+                        <Lightbulb className="h-4 w-4" />
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 md:gap-2">
+                      <button type="button" className="hidden sm:block p-1.5 text-slate-400 hover:text-slate-200 rounded-md transition-colors">
+                        <Cpu className="h-4 w-4" />
+                      </button>
+                      <button type="button" className="hidden sm:block p-1.5 text-slate-400 hover:text-slate-200 rounded-md transition-colors">
+                        <Globe className="h-4 w-4" />
+                      </button>
+                      <button type="button" className="p-1.5 md:p-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-full transition-colors">
+                        <Mic className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isSubmitting || !command.trim()}
+                        className="p-1.5 md:p-2 bg-purple-600 hover:bg-purple-500 text-white rounded-full disabled:opacity-40 transition-all shadow-md ml-0.5"
+                      >
+                        {isSubmitting ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <ArrowRight className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </form>
+
+                {/* Saved Prompts Banner Pill */}
+                <div className="w-full bg-[#161922]/80 border border-slate-800 rounded-lg px-3.5 py-2 md:py-2.5 flex items-center justify-between text-xs text-slate-300">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="h-3.5 w-3.5 text-purple-400 shrink-0" />
+                    <span className="font-medium text-slate-200 text-[11px] md:text-xs">
+                      Saved prompt templates
                     </span>
-                    <button
-                      type="button"
-                      className="p-1.5 text-slate-400 hover:text-slate-200 rounded-md transition-colors"
-                    >
-                      <ImageIcon className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      className="p-1.5 text-slate-400 hover:text-slate-200 rounded-md transition-colors"
-                    >
-                      <Lightbulb className="h-4 w-4" />
-                    </button>
                   </div>
-
-                  <div className="flex items-center gap-1.5 md:gap-2">
-                    <button
-                      type="button"
-                      className="hidden sm:block p-1.5 text-slate-400 hover:text-slate-200 rounded-md transition-colors"
-                    >
-                      <Cpu className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      className="hidden sm:block p-1.5 text-slate-400 hover:text-slate-200 rounded-md transition-colors"
-                    >
-                      <Globe className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      className="p-1.5 md:p-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-full transition-colors"
-                    >
-                      <Mic className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={isSubmitting || !command.trim()}
-                      className="p-1.5 md:p-2 bg-purple-600 hover:bg-purple-500 text-white rounded-full disabled:opacity-40 transition-all shadow-md ml-0.5"
-                    >
-                      {isSubmitting ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <ArrowRight className="h-4 w-4" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-              </form>
-
-              {/* Saved Prompts Banner Pill */}
-              <div className="w-full bg-[#161922]/80 border border-slate-800 rounded-lg px-3.5 py-2 md:py-2.5 flex items-center justify-between text-xs text-slate-300">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="h-3.5 w-3.5 text-purple-400 shrink-0" />
-                  <span className="font-medium text-slate-200 text-[11px] md:text-xs">
-                    Saved prompt templates
-                  </span>
-                </div>
-                <button className="flex items-center gap-1 px-2 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-md text-[10px] md:text-[11px] font-medium text-slate-200 transition-colors">
-                  <Paperclip className="h-3 w-3" />
-                  <span>Attach file</span>
-                </button>
-              </div>
-
-              {/* Example Query Chips */}
-              <div className="flex flex-wrap justify-center gap-1.5 mt-1">
-                {EXAMPLES.map((ex, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => handleExampleClick(ex)}
-                    className="text-[10px] md:text-[11px] bg-[#161922] hover:bg-purple-950/40 border border-slate-800 hover:border-purple-800/60 rounded-full px-2.5 py-1 text-slate-300 hover:text-purple-200 transition-all text-left max-w-full truncate"
-                  >
-                    "{ex}"
+                  <button className="flex items-center gap-1 px-2 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-md text-[10px] md:text-[11px] font-medium text-slate-200 transition-colors">
+                    <Paperclip className="h-3 w-3" />
+                    <span>Attach file</span>
                   </button>
-                ))}
-              </div>
+                </div>
 
-              {/* Error Popup */}
-              <AnimatePresence>
-                {error && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
-                    className="mt-3 p-3 bg-red-950/60 border border-red-500/40 text-red-200 text-xs rounded-lg flex items-start gap-2.5 text-left"
-                  >
-                    <AlertTriangle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
-                    <span>{error}</span>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
+                {/* Example Query Chips */}
+                <div className="flex flex-wrap justify-center gap-1.5 mt-1">
+                  {EXAMPLES.map((ex, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => handleExampleClick(ex)}
+                      className="text-[10px] md:text-[11px] bg-[#161922] hover:bg-purple-950/40 border border-slate-800 hover:border-purple-800/60 rounded-full px-2.5 py-1 text-slate-300 hover:text-purple-200 transition-all text-left max-w-full truncate"
+                    >
+                      &quot;{ex}&quot;
+                    </button>
+                  ))}
+                </div>
+
+                {/* Error Popup */}
+                <AnimatePresence>
+                  {error && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      className="mt-3 p-3 bg-red-950/60 border border-red-500/40 text-red-200 text-xs rounded-lg flex items-start gap-2.5 text-left"
+                    >
+                      <AlertTriangle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
+                      <span>{error}</span>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            ) : (
+              /* Unauthenticated CTA */
+              <div className="w-full flex flex-col items-center gap-4">
+                <div className="flex items-center gap-3">
+                  <SignUpButton mode="modal">
+                    <button className="px-5 py-2.5 bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold rounded-xl transition-all shadow-lg shadow-purple-900/40 flex items-center gap-2">
+                      <Sparkles className="h-4 w-4" />
+                      Get started free
+                    </button>
+                  </SignUpButton>
+                  <SignInButton mode="modal">
+                    <button className="px-5 py-2.5 bg-transparent border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-slate-100 text-sm font-medium rounded-xl transition-colors">
+                      Sign in
+                    </button>
+                  </SignInButton>
+                </div>
+                <p className="text-[11px] text-slate-500 font-mono">
+                  Free account · No credit card required
+                </p>
+              </div>
+            )}
 
             {/* Bottom Recommendation Cards */}
             <div className="w-full grid grid-cols-1 sm:grid-cols-3 gap-2.5 md:gap-3 mt-1">
@@ -357,8 +439,8 @@ export default function Home() {
                 return (
                   <div
                     key={idx}
-                    onClick={() => setCommand(s.desc)}
-                    className="p-3.5 md:p-4 bg-[#161922] border border-slate-800 hover:border-purple-500/50 rounded-xl text-left cursor-pointer transition-all hover:-translate-y-0.5 shadow-md flex flex-col gap-1.5 md:gap-2 group"
+                    onClick={() => isSignedIn && setCommand(s.desc)}
+                    className={`p-3.5 md:p-4 bg-[#161922] border border-slate-800 hover:border-purple-500/50 rounded-xl text-left transition-all hover:-translate-y-0.5 shadow-md flex flex-col gap-1.5 md:gap-2 group ${isSignedIn ? "cursor-pointer" : "cursor-default opacity-70"}`}
                   >
                     <IconComp className="h-4 w-4 text-purple-400" />
                     <h4 className="text-xs font-semibold text-slate-200 group-hover:text-purple-300 transition-colors">
