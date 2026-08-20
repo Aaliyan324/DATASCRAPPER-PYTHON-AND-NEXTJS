@@ -60,7 +60,7 @@ export async function POST(request: Request) {
     // We do not await this so that the API returns instantly and the client can poll the status.
     (async () => {
       try {
-        await runSearchWorkflow(job.id, command, 50);
+        await runSearchWorkflow(job.id, command, 100);
       } catch (err: any) {
         console.error("Background search workflow error:", err);
       }

@@ -27,12 +27,15 @@ export function getEffectiveRadius(loc: Location): number {
   if (loc.distance_meters) return loc.distance_meters;
   if (loc.radius_meters) return loc.radius_meters;
 
+  // Very micro: block / chowk / landmark / road
   if (loc.block || loc.chowk || loc.landmark || loc.road) {
-    return 1000;
+    return 1500;
   }
+  // Sub-locality: phase / sector / market / bazaar
   if (loc.phase || loc.sector || loc.market || loc.bazaar) {
-    return 2000;
+    return 3000;
   }
+  // Neighbourhood: society / colony / village
   if (
     loc.housing_society ||
     loc.colony ||
@@ -42,21 +45,22 @@ export function getEffectiveRadius(loc: Location): number {
     loc.mouza ||
     loc.basti
   ) {
-    return 3000;
-  }
-  if (loc.town || loc.union_council) {
     return 5000;
   }
+  if (loc.town || loc.union_council) {
+    return 8000;
+  }
+  // City / tehsil — Pakistani cities are large (Lahore ~40km, Karachi ~60km)
   if (loc.city || loc.tehsil) {
-    return 10000;
+    return 40000;   // 40 km
   }
   if (loc.district) {
-    return 20000;
+    return 80000;   // 80 km
   }
   if (loc.division || loc.province) {
-    return 50000;
+    return 200000;  // 200 km
   }
-  return 10000; // default
+  return 40000; // default to city-scale
 }
 
 function computeDistanceKm(record: PlaceRecord, loc: Location): number | null {
@@ -163,14 +167,16 @@ export function filterAndRank(records: PlaceRecord[], plan: SearchPlan): PlaceRe
 
   let maxAllowedKm: number;
   if (loc.preposition === "inside") {
-    maxAllowedKm = radiusKm * 1.2;
+    maxAllowedKm = radiusKm * 1.5;
   } else if (loc.preposition === "in") {
-    maxAllowedKm = radiusKm * 2.0;
+    // For city-level searches the radius is already the full city extent
+    // — do NOT apply a tight multiplier or far zones get discarded.
+    maxAllowedKm = radiusKm * 2.5;
   } else if (loc.preposition === "near") {
-    maxAllowedKm = radiusKm * 4.0;
+    maxAllowedKm = radiusKm * 5.0;
   } else {
     // around
-    maxAllowedKm = radiusKm * 3.0;
+    maxAllowedKm = radiusKm * 4.0;
   }
 
   const scored = records.map((r) => {
@@ -187,17 +193,16 @@ export function filterAndRank(records: PlaceRecord[], plan: SearchPlan): PlaceRe
   scored.sort((a, b) => {
     const scoreA = a.location_match_score ?? 0;
     const scoreB = b.location_match_score ?? 0;
-    if (scoreA !== scoreB) {
-      return scoreB - scoreA;
-    }
-    const distA = a.distance_km ?? 9999;
-    const distB = b.distance_km ?? 9999;
-    return distA - distB;
+    if (scoreA !== scoreB) return scoreB - scoreA;
+    return (a.distance_km ?? 9999) - (b.distance_km ?? 9999);
   });
 
-  const kept = scored.filter((r) => r.distance_km === null || r.distance_km <= maxAllowedKm);
-  if (kept.length >= 5) {
-    return kept;
+  // Only hard-filter if we have coordinates; otherwise keep everything sorted
+  if (loc.latitude != null && loc.longitude != null) {
+    const kept = scored.filter((r) => r.distance_km === null || r.distance_km <= maxAllowedKm);
+    // If the strict filter removed too many, relax to the full sorted list
+    return kept.length >= Math.min(10, records.length * 0.3) ? kept : scored;
   }
+
   return scored;
 }
