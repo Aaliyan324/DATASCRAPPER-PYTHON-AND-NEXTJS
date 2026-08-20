@@ -33,7 +33,21 @@ export async function GET(
     }
 
     const results = await getJobResults(id);
-    return NextResponse.json({ success: true, results });
+
+    // Extract deduplication data from job's parsedQuery
+    let deduplicationResult = null;
+    if (job.parsedQuery) {
+      try {
+        const parsed = JSON.parse(job.parsedQuery);
+        if (parsed.deduplicationResult) {
+          deduplicationResult = parsed.deduplicationResult;
+        }
+      } catch (e) {
+        // Ignore parse errors
+      }
+    }
+
+    return NextResponse.json({ success: true, results, deduplicationResult });
   } catch (e: any) {
     console.error("API error in GET /api/search/[id]/results:", e);
     return NextResponse.json(

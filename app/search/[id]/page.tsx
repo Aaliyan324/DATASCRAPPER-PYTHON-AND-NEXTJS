@@ -39,6 +39,8 @@ import {
 import { exportToExcel, exportToPDF, exportToCSV } from "@/lib/exporter";
 import { SearchJob, Business } from "@/lib/db";
 import { SearchPlan } from "@/lib/data-engine";
+import { BusinessRecord, DuplicateGroup } from "@/lib/deduplication/types";
+import ExportDialog from "@/components/ExportDialog";
 import dynamic from "next/dynamic";
 
 const BusinessMap = dynamic(() => import("@/components/map/BusinessMap"), {
@@ -89,7 +91,7 @@ const containerVariants: Variants = {
   visible: {
     opacity: 1,
     transition: {
-      staggerChildren: 0.06,
+      staggerChildren: 0.05,
       delayChildren: 0.1,
     },
   },
@@ -179,6 +181,10 @@ export default function SearchResultsPage() {
   const [viewMode, setViewMode] = useState<"split" | "list" | "map">("split");
   const [selectedBusinessId, setSelectedBusinessId] = useState<string | null>(null);
 
+  // Export Dialog
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [deduplicationData, setDeduplicationData] = useState<any>(null);
+
   // Polling Job Status
   useEffect(() => {
     if (!jobId) return;
@@ -235,7 +241,6 @@ export default function SearchResultsPage() {
       try {
         const res = await fetch(`/api/search/${jobId}/results`);
         if (res.status === 404) {
-          // Job exists but results are missing (data may have been lost)
           if (isMounted) {
             setError("Search results are no longer available. Please start a new search.");
             setLoading(false);
@@ -247,6 +252,9 @@ export default function SearchResultsPage() {
         const data = await res.json();
         if (data.success && isMounted) {
           setResults(data.results || []);
+          if (data.deduplicationResult) {
+            setDeduplicationData(data.deduplicationResult);
+          }
         }
       } catch (err: any) {
         console.error(err);
@@ -412,6 +420,51 @@ export default function SearchResultsPage() {
     exportToCSV(filteredAndSortedBusinesses, job.originalCommand);
   };
 
+  // Convert Business[] to BusinessRecord[] for the export dialog
+  const exportBusinessRecords: BusinessRecord[] = useMemo(() => {
+    return results.map((b) => ({
+      id: b.id,
+      name: b.name,
+      category: b.category || undefined,
+      address: b.address || undefined,
+      area: b.area || undefined,
+      city: b.city || undefined,
+      district: b.city || undefined,
+      country: b.country || "Pakistan",
+      phone: b.phone || undefined,
+      website: b.website || undefined,
+      latitude: b.latitude ?? undefined,
+      longitude: b.longitude ?? undefined,
+      placeId: b.placeId || undefined,
+      rating: b.rating ?? undefined,
+      reviewCount: b.reviewCount ?? undefined,
+      source: b.source,
+      googleMapsUrl: b.googleMapsUrl || undefined,
+    }));
+  }, [results]);
+
+  // Convert deduplication data to DuplicateGroup[] for export
+  const exportDuplicateGroups: DuplicateGroup[] = useMemo(() => {
+    if (!deduplicationData?.duplicateGroups) return [];
+    return deduplicationData.duplicateGroups.map((g: any) => ({
+      groupId: g.groupId,
+      masterRecordId: g.masterRecordId,
+      duplicateScore: g.duplicateScore,
+      reason: g.reason || [],
+      records: (g.records || []).map((r: any) => ({
+        name: r.name || "",
+        country: "Pakistan",
+        address: r.address,
+        area: r.area,
+        city: r.city,
+        phone: r.phone,
+        website: r.website,
+        latitude: r.latitude,
+        longitude: r.longitude,
+      })),
+    }));
+  }, [deduplicationData]);
+
   // Map interaction handlers
   const handleMapBusinessSelect = (business: Business) => {
     if (!business) {
@@ -481,6 +534,15 @@ export default function SearchResultsPage() {
               <SidebarClose className="h-4 w-4" />
             </button>
           </div>
+
+          {/* New Search Button */}
+          <button
+            onClick={() => router.push("/")}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 text-purple-300 text-xs font-medium transition-colors"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            New Search
+          </button>
 
           {/* Job Info */}
           <div className="flex-1 overflow-y-auto flex flex-col gap-3 pr-1">
@@ -560,6 +622,29 @@ export default function SearchResultsPage() {
               <span className="h-2 w-2 rounded-full bg-purple-400 animate-pulse" />
               <span className="text-purple-200 font-medium">Results Dashboard</span>
             </div>
+          </div>
+
+          {/* Export Buttons (visible on desktop) */}
+          <div className="hidden md:flex items-center gap-2">
+            <button
+              onClick={() => setExportDialogOpen(true)}
+              className="flex items-center gap-1.5 py-1.5 px-3 border border-purple-600/50 bg-purple-950/30 hover:bg-purple-900/40 font-mono text-[10px] md:text-xs rounded-lg text-purple-200 transition-all"
+            >
+              <Download className="h-3.5 w-3.5 text-purple-400" />
+              EXPORT
+              {deduplicationData && (
+                <span className="text-[9px] text-purple-400/70 ml-0.5">
+                  ({deduplicationData.uniqueCount || results.length})
+                </span>
+              )}
+            </button>
+            <button
+              onClick={handleCSVExport}
+              className="flex items-center gap-1.5 py-1.5 px-3 border border-slate-700 bg-[#161922] hover:bg-slate-800 font-mono text-[10px] md:text-xs rounded-lg text-slate-200 transition-all"
+            >
+              <FileSpreadsheet className="h-3.5 w-3.5 text-slate-400" />
+              CSV
+            </button>
           </div>
         </header>
 
@@ -705,9 +790,8 @@ export default function SearchResultsPage() {
                   </div>
                 </div>
 
-                {/* Action Buttons */}
+                {/* View Mode Toggle (desktop) */}
                 <div className="flex items-center gap-2 flex-wrap">
-                  {/* View Mode Toggle */}
                   <div className="flex items-center gap-1 bg-[#0f1117] border border-slate-800 rounded-lg p-1">
                     <button
                       onClick={() => setViewMode("list")}
@@ -740,27 +824,15 @@ export default function SearchResultsPage() {
                       MAP
                     </button>
                   </div>
-                  <button
-                    onClick={handleExcelExport}
-                    className="flex items-center gap-1.5 py-1.5 px-3 border border-slate-700 bg-[#161922] hover:bg-slate-800 font-mono text-[10px] md:text-xs rounded-lg text-slate-200 transition-all"
-                  >
-                    <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-400" />
-                    EXCEL
-                  </button>
-                  <button
-                    onClick={handlePDFExport}
-                    className="flex items-center gap-1.5 py-1.5 px-3 border border-slate-700 bg-[#161922] hover:bg-slate-800 font-mono text-[10px] md:text-xs rounded-lg text-slate-200 transition-all"
-                  >
-                    <FileText className="h-3.5 w-3.5 text-red-400" />
-                    PDF
-                  </button>
-                  <button
-                    onClick={handleCSVExport}
-                    className="flex items-center gap-1.5 py-1.5 px-3 border border-slate-700 bg-[#161922] hover:bg-slate-800 font-mono text-[10px] md:text-xs rounded-lg text-slate-200 transition-all"
-                  >
-                    <Download className="h-3.5 w-3.5 text-slate-400" />
-                    CSV
-                  </button>
+                  {/* Mobile export buttons (small) */}
+                  <div className="flex md:hidden gap-1">
+                    <button onClick={() => setExportDialogOpen(true)} className="p-1.5 border border-purple-600/50 rounded-lg text-purple-400 hover:text-purple-200 transition-colors">
+                      <Download className="h-4 w-4" />
+                    </button>
+                    <button onClick={handleCSVExport} className="p-1.5 border border-slate-700 rounded-lg text-slate-400 hover:text-slate-200 transition-colors">
+                      <FileSpreadsheet className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
               </motion.section>
 
@@ -916,203 +988,203 @@ export default function SearchResultsPage() {
                       viewMode === "split" ? "lg:flex-1 lg:min-w-0" : "w-full"
                     }`}
                   >
-                <div className="overflow-x-auto w-full">
-                  <table className="w-full border-collapse text-left text-xs">
-                    <thead className="bg-[#0f1117] border-b border-slate-800 text-slate-400 font-mono uppercase tracking-wider">
-                      <tr>
-                        <th className="py-3 px-4 font-semibold w-10">#</th>
-                        <th
-                          onClick={() => handleSort("name")}
-                          className="py-3 px-4 font-semibold cursor-pointer hover:text-slate-200 transition-colors min-w-[160px]"
-                        >
-                          <span className="flex items-center gap-1">
-                            Business
-                            {sortBy === "name" && (sortOrder === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
-                          </span>
-                        </th>
-                        <th
-                          onClick={() => handleSort("category")}
-                          className="py-3 px-4 font-semibold cursor-pointer hover:text-slate-200 transition-colors min-w-[100px]"
-                        >
-                          <span className="flex items-center gap-1">
-                            Category
-                            {sortBy === "category" && (sortOrder === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
-                          </span>
-                        </th>
-                        <th
-                          onClick={() => handleSort("city")}
-                          className="py-3 px-4 font-semibold cursor-pointer hover:text-slate-200 transition-colors min-w-[80px]"
-                        >
-                          <span className="flex items-center gap-1">
-                            City
-                            {sortBy === "city" && (sortOrder === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
-                          </span>
-                        </th>
-                        <th className="py-3 px-4 font-semibold min-w-[120px]">Phone</th>
-                        <th className="py-3 px-4 font-semibold min-w-[140px]">Website</th>
-                        <th
-                          onClick={() => handleSort("rating")}
-                          className="py-3 px-4 font-semibold cursor-pointer hover:text-slate-200 transition-colors min-w-[70px]"
-                        >
-                          <span className="flex items-center gap-1">
-                            Rating
-                            {sortBy === "rating" && (sortOrder === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
-                          </span>
-                        </th>
-                        <th className="py-3 px-4 font-semibold min-w-[150px]">Address</th>
-                        <th className="py-3 px-4 font-semibold w-12 text-center">View</th>
-                      </tr>
-                    </thead>
-
-                    <tbody className="divide-y divide-slate-800/60">
-                      {resultsLoading ? (
-                        <tr>
-                          <td colSpan={9} className="py-12 text-center text-slate-500 font-mono">
-                            <motion.div
-                              animate={{ rotate: 360 }}
-                              transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
-                              className="h-6 w-6 mx-auto mb-2 text-purple-400"
+                    <div className="overflow-x-auto w-full">
+                      <table className="w-full border-collapse text-left text-xs">
+                        <thead className="bg-[#0f1117] border-b border-slate-800 text-slate-400 font-mono uppercase tracking-wider">
+                          <tr>
+                            <th className="py-3 px-4 font-semibold w-10">#</th>
+                            <th
+                              onClick={() => handleSort("name")}
+                              className="py-3 px-4 font-semibold cursor-pointer hover:text-slate-200 transition-colors min-w-[160px]"
                             >
-                              <Loader2 className="h-6 w-6" />
-                            </motion.div>
-                            Reloading dataset...
-                          </td>
-                        </tr>
-                      ) : paginatedBusinesses.length === 0 ? (
-                        <tr>
-                          <td colSpan={9} className="py-12 text-center text-slate-500">
-                            <p className="font-semibold text-sm text-slate-400">No matching businesses found</p>
-                            <p className="text-xs text-slate-500 mt-1">Try broadening your search or clearing filters.</p>
-                          </td>
-                        </tr>
-                      ) : (
-                        paginatedBusinesses.map((b, idx) => (
-                          <motion.tr
-                            key={b.id}
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            transition={{ delay: idx * 0.02 }}
-                            className={`group hover:bg-[#1e2330] cursor-pointer transition-colors ${
-                              selectedBusinessId === b.id ? "bg-purple-950/30 border-l-2 border-l-purple-500" : ""
-                            }`}
-                            onClick={() => handleTableBusinessClick(b)}
-                          >
-                            <td className="py-3 px-4 font-mono text-slate-500">
-                              {(currentPage - 1) * pageSize + idx + 1}
-                            </td>
-                            <td className="py-3 px-4 font-medium text-slate-100 max-w-[200px] truncate">
-                              {b.name}
-                            </td>
-                            <td className="py-3 px-4">
-                              <span className="bg-slate-800 text-slate-300 text-[10px] font-medium py-0.5 px-2 rounded font-mono">
-                                {b.category}
+                              <span className="flex items-center gap-1">
+                                Business
+                                {sortBy === "name" && (sortOrder === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
                               </span>
-                            </td>
-                            <td className="py-3 px-4 text-slate-300">{b.city || "-"}</td>
-                            <td className="py-3 px-4 font-mono text-slate-300">
-                              {b.phone ? (
-                                <a
-                                  href={`tel:${b.phone}`}
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="flex items-center gap-1 hover:text-purple-400 hover:underline"
-                                >
-                                  <Phone className="h-3 w-3 text-slate-500" />
-                                  {b.phone}
-                                </a>
-                              ) : (
-                                <span className="text-slate-600">-</span>
-                              )}
-                            </td>
-                            <td className="py-3 px-4 font-mono text-slate-300 truncate max-w-[180px]">
-                              {b.website ? (
-                                <a
-                                  href={b.website}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="flex items-center gap-1 hover:text-purple-400 hover:underline truncate"
-                                >
-                                  <Globe className="h-3 w-3 text-slate-500 shrink-0" />
-                                  {b.website.replace(/^https?:\/\//, "")}
-                                </a>
-                              ) : (
-                                <span className="text-slate-600">-</span>
-                              )}
-                            </td>
-                            <td className="py-3 px-4 font-mono">
-                              {b.rating ? (
-                                <span className="flex items-center gap-1 text-amber-400 font-bold">
-                                  <Star className="h-3.5 w-3.5 fill-amber-400 shrink-0" />
-                                  {b.rating}
-                                </span>
-                              ) : (
-                                <span className="text-slate-600">-</span>
-                              )}
-                            </td>
-                            <td className="py-3 px-4 text-slate-400 max-w-[200px] truncate group-hover:text-slate-300 transition-colors" title={b.address || ""}>
-                              {b.address || "-"}
-                            </td>
-                            <td className="py-3 px-4 text-center">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedBusiness(b);
-                                }}
-                                className="text-slate-500 hover:text-purple-400 p-1 rounded transition-colors"
-                              >
-                                <Eye className="h-4 w-4" />
-                              </button>
-                            </td>
-                          </motion.tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                            </th>
+                            <th
+                              onClick={() => handleSort("category")}
+                              className="py-3 px-4 font-semibold cursor-pointer hover:text-slate-200 transition-colors min-w-[100px]"
+                            >
+                              <span className="flex items-center gap-1">
+                                Category
+                                {sortBy === "category" && (sortOrder === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                              </span>
+                            </th>
+                            <th
+                              onClick={() => handleSort("city")}
+                              className="py-3 px-4 font-semibold cursor-pointer hover:text-slate-200 transition-colors min-w-[80px]"
+                            >
+                              <span className="flex items-center gap-1">
+                                City
+                                {sortBy === "city" && (sortOrder === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                              </span>
+                            </th>
+                            <th className="py-3 px-4 font-semibold min-w-[120px]">Phone</th>
+                            <th className="py-3 px-4 font-semibold min-w-[140px]">Website</th>
+                            <th
+                              onClick={() => handleSort("rating")}
+                              className="py-3 px-4 font-semibold cursor-pointer hover:text-slate-200 transition-colors min-w-[70px]"
+                            >
+                              <span className="flex items-center gap-1">
+                                Rating
+                                {sortBy === "rating" && (sortOrder === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                              </span>
+                            </th>
+                            <th className="py-3 px-4 font-semibold min-w-[150px]">Address</th>
+                            <th className="py-3 px-4 font-semibold w-12 text-center">View</th>
+                          </tr>
+                        </thead>
 
-                {/* Pagination footer */}
-                {filteredAndSortedBusinesses.length > 0 && (
-                  <div className="py-3 px-4 border-t border-slate-800 bg-[#0f1117] flex flex-wrap items-center justify-between gap-3 text-xs font-mono text-slate-500">
-                    <div className="flex items-center gap-2">
-                      <span>Page size:</span>
-                      <select
-                        value={pageSize}
-                        onChange={(e) => {
-                          setPageSize(parseInt(e.target.value, 10));
-                          setCurrentPage(1);
-                        }}
-                        className="border border-slate-800 bg-[#161922] rounded-lg p-1 font-mono text-slate-200 outline-none focus:border-purple-500/80"
-                      >
-                        <option value={10}>10</option>
-                        <option value={20}>20</option>
-                        <option value={50}>50</option>
-                      </select>
+                        <tbody className="divide-y divide-slate-800/60">
+                          {resultsLoading ? (
+                            <tr>
+                              <td colSpan={9} className="py-12 text-center text-slate-500 font-mono">
+                                <motion.div
+                                  animate={{ rotate: 360 }}
+                                  transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
+                                  className="h-6 w-6 mx-auto mb-2 text-purple-400"
+                                >
+                                  <Loader2 className="h-6 w-6" />
+                                </motion.div>
+                                Reloading dataset...
+                              </td>
+                            </tr>
+                          ) : paginatedBusinesses.length === 0 ? (
+                            <tr>
+                              <td colSpan={9} className="py-12 text-center text-slate-500">
+                                <p className="font-semibold text-sm text-slate-400">No matching businesses found</p>
+                                <p className="text-xs text-slate-500 mt-1">Try broadening your search or clearing filters.</p>
+                              </td>
+                            </tr>
+                          ) : (
+                            paginatedBusinesses.map((b, idx) => (
+                              <motion.tr
+                                key={b.id}
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                transition={{ delay: idx * 0.02 }}
+                                className={`group hover:bg-[#1e2330] cursor-pointer transition-colors ${
+                                  selectedBusinessId === b.id ? "bg-purple-950/30 border-l-2 border-l-purple-500" : ""
+                                }`}
+                                onClick={() => handleTableBusinessClick(b)}
+                              >
+                                <td className="py-3 px-4 font-mono text-slate-500">
+                                  {(currentPage - 1) * pageSize + idx + 1}
+                                </td>
+                                <td className="py-3 px-4 font-medium text-slate-100 max-w-[200px] truncate">
+                                  {b.name}
+                                </td>
+                                <td className="py-3 px-4">
+                                  <span className="bg-slate-800 text-slate-300 text-[10px] font-medium py-0.5 px-2 rounded font-mono">
+                                    {b.category}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-4 text-slate-300">{b.city || "-"}</td>
+                                <td className="py-3 px-4 font-mono text-slate-300">
+                                  {b.phone ? (
+                                    <a
+                                      href={`tel:${b.phone}`}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="flex items-center gap-1 hover:text-purple-400 hover:underline"
+                                    >
+                                      <Phone className="h-3 w-3 text-slate-500" />
+                                      {b.phone}
+                                    </a>
+                                  ) : (
+                                    <span className="text-slate-600">-</span>
+                                  )}
+                                </td>
+                                <td className="py-3 px-4 font-mono text-slate-300 truncate max-w-[180px]">
+                                  {b.website ? (
+                                    <a
+                                      href={b.website}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="flex items-center gap-1 hover:text-purple-400 hover:underline truncate"
+                                    >
+                                      <Globe className="h-3 w-3 text-slate-500 shrink-0" />
+                                      {b.website.replace(/^https?:\/\//, "")}
+                                    </a>
+                                  ) : (
+                                    <span className="text-slate-600">-</span>
+                                  )}
+                                </td>
+                                <td className="py-3 px-4 font-mono">
+                                  {b.rating ? (
+                                    <span className="flex items-center gap-1 text-amber-400 font-bold">
+                                      <Star className="h-3.5 w-3.5 fill-amber-400 shrink-0" />
+                                      {b.rating}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-600">-</span>
+                                  )}
+                                </td>
+                                <td className="py-3 px-4 text-slate-400 max-w-[200px] truncate group-hover:text-slate-300 transition-colors" title={b.address || ""}>
+                                  {b.address || "-"}
+                                </td>
+                                <td className="py-3 px-4 text-center">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedBusiness(b);
+                                    }}
+                                    className="text-slate-500 hover:text-purple-400 p-1 rounded transition-colors"
+                                  >
+                                    <Eye className="h-4 w-4" />
+                                  </button>
+                                </td>
+                              </motion.tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
                     </div>
-                    <div className="text-center">
-                      {(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, filteredAndSortedBusinesses.length)} of {filteredAndSortedBusinesses.length}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => setCurrentPage(currentPage - 1)}
-                        disabled={currentPage === 1}
-                        className="p-1.5 border border-slate-800 bg-[#161922] hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-[#161922] rounded-lg transition-colors"
-                      >
-                        <ChevronLeft className="h-4 w-4" />
-                      </button>
-                      <span className="px-3 text-slate-400">
-                        {currentPage} / {totalPages}
-                      </span>
-                      <button
-                        onClick={() => setCurrentPage(currentPage + 1)}
-                        disabled={currentPage === totalPages}
-                        className="p-1.5 border border-slate-800 bg-[#161922] hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-[#161922] rounded-lg transition-colors"
-                      >
-                        <ChevronRight className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </motion.div>
+
+                    {/* Pagination footer */}
+                    {filteredAndSortedBusinesses.length > 0 && (
+                      <div className="py-3 px-4 border-t border-slate-800 bg-[#0f1117] flex flex-wrap items-center justify-between gap-3 text-xs font-mono text-slate-500">
+                        <div className="flex items-center gap-2">
+                          <span>Page size:</span>
+                          <select
+                            value={pageSize}
+                            onChange={(e) => {
+                              setPageSize(parseInt(e.target.value, 10));
+                              setCurrentPage(1);
+                            }}
+                            className="border border-slate-800 bg-[#161922] rounded-lg p-1 font-mono text-slate-200 outline-none focus:border-purple-500/80"
+                          >
+                            <option value={10}>10</option>
+                            <option value={20}>20</option>
+                            <option value={50}>50</option>
+                          </select>
+                        </div>
+                        <div className="text-center">
+                          {(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, filteredAndSortedBusinesses.length)} of {filteredAndSortedBusinesses.length}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => setCurrentPage(currentPage - 1)}
+                            disabled={currentPage === 1}
+                            className="p-1.5 border border-slate-800 bg-[#161922] hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-[#161922] rounded-lg transition-colors"
+                          >
+                            <ChevronLeft className="h-4 w-4" />
+                          </button>
+                          <span className="px-3 text-slate-400">
+                            {currentPage} / {totalPages}
+                          </span>
+                          <button
+                            onClick={() => setCurrentPage(currentPage + 1)}
+                            disabled={currentPage === totalPages}
+                            className="p-1.5 border border-slate-800 bg-[#161922] hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-[#161922] rounded-lg transition-colors"
+                          >
+                            <ChevronRight className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </motion.div>
                 )}
 
                 {/* Map Panel */}
@@ -1289,7 +1361,6 @@ export default function SearchResultsPage() {
                       </div>
                     </div>
                   )}
-
                 </div>
 
                 {selectedBusiness.additionalData && (
@@ -1326,6 +1397,17 @@ export default function SearchResultsPage() {
           </>
         )}
       </AnimatePresence>
+
+      {/* Export Dialog */}
+      <ExportDialog
+        isOpen={exportDialogOpen}
+        onClose={() => setExportDialogOpen(false)}
+        businesses={exportBusinessRecords}
+        duplicateGroups={exportDuplicateGroups}
+        searchQuery={job?.originalCommand || ""}
+        rawCount={deduplicationData?.rawCount || results.length}
+        currentResults={exportBusinessRecords}
+      />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -22,6 +22,10 @@ import {
   SidebarClose,
   SidebarOpen,
   LogIn,
+  Plus,
+  MessageSquare,
+  Menu,
+  X,
 } from "lucide-react";
 import {
   SignInButton,
@@ -37,6 +41,13 @@ interface HistoryJob {
   status: string;
   totalResults: number;
   createdAt: string;
+}
+
+interface Message {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  isTyping?: boolean;
 }
 
 const EXAMPLES = [
@@ -76,8 +87,39 @@ export default function Home() {
   const [history, setHistory] = useState<HistoryJob[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      id: "welcome",
+      role: "assistant",
+      content:
+        "Hello! I'm **Aether AI**. I can help you discover businesses across Pakistan. What would you like to find today?",
+    },
+  ]);
+  const [inputValue, setInputValue] = useState("");
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [isMobile, setIsMobile] = useState(false);
 
-  React.useEffect(() => {
+  // Detect mobile for sidebar behavior
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
+
+  // Auto-close sidebar on mobile after navigation
+  useEffect(() => {
+    if (isMobile) setSidebarOpen(false);
+  }, [isMobile]);
+
+  // Scroll to bottom when messages change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  // Fetch history when signed in
+  useEffect(() => {
     if (!isSignedIn) return;
     async function fetchHistory() {
       try {
@@ -93,37 +135,120 @@ export default function Home() {
     fetchHistory();
   }, [isSignedIn]);
 
+  // Focus input on load
+  useEffect(() => {
+    if (isSignedIn) {
+      inputRef.current?.focus();
+    }
+  }, [isSignedIn]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!command.trim()) return;
+    const query = inputValue.trim();
+    if (!query || isSubmitting || !isSignedIn) return;
 
+    // Add user message
+    const userMsg: Message = {
+      id: Date.now().toString(),
+      role: "user",
+      content: query,
+    };
+    setMessages((prev) => [...prev, userMsg]);
+    setInputValue("");
     setIsSubmitting(true);
     setError(null);
+
+    // Add a temporary "typing" assistant message
+    const typingId = (Date.now() + 1).toString();
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: typingId,
+        role: "assistant",
+        content: "Searching for businesses...",
+        isTyping: true,
+      },
+    ]);
 
     try {
       const res = await fetch("/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ command: command.trim() }),
+        body: JSON.stringify({ command: query }),
       });
 
       const data = await res.json();
+      // Remove typing message
+      setMessages((prev) => prev.filter((m) => m.id !== typingId));
+
       if (data.success && data.jobId) {
-        router.push(`/search/${data.jobId}`);
+        // Add a success message before redirect
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: (Date.now() + 2).toString(),
+            role: "assistant",
+            content: `I found some results! Taking you there now...`,
+          },
+        ]);
+        // Redirect after a short delay to let the user see the message
+        setTimeout(() => {
+          router.push(`/search/${data.jobId}`);
+        }, 800);
       } else {
         setError(data.message || data.error || "Failed to initialize search job");
+        // Add error message
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: (Date.now() + 2).toString(),
+            role: "assistant",
+            content: `⚠️ ${data.message || "Something went wrong. Please try again."}`,
+          },
+        ]);
         setIsSubmitting(false);
       }
     } catch (err) {
       console.error(err);
       setError("Network connection error. Please verify connection and try again.");
+      setMessages((prev) => prev.filter((m) => m.id !== typingId));
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: (Date.now() + 2).toString(),
+          role: "assistant",
+          content: "⚠️ Network error. Please check your connection and try again.",
+        },
+      ]);
       setIsSubmitting(false);
     }
   };
 
-  const handleExampleClick = (text: string) => setCommand(text);
+  const handleExampleClick = (text: string) => {
+    setInputValue(text);
+    inputRef.current?.focus();
+  };
 
-  // Friendly greeting using Clerk user's first name
+  const handleSuggestionClick = (desc: string) => {
+    if (isSignedIn) {
+      setInputValue(desc);
+      inputRef.current?.focus();
+    }
+  };
+
+  const clearChat = () => {
+    setMessages([
+      {
+        id: "welcome",
+        role: "assistant",
+        content:
+          "Hello! I'm **Aether AI**. I can help you discover businesses across Pakistan. What would you like to find today?",
+      },
+    ]);
+    setError(null);
+  };
+
+  // Greeting
   const greeting = isSignedIn && user?.firstName
     ? `Hello, ${user.firstName}`
     : isSignedIn
@@ -140,7 +265,7 @@ export default function Home() {
 
       {/* Mobile Drawer Backdrop */}
       <AnimatePresence>
-        {sidebarOpen && (
+        {sidebarOpen && isMobile && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -204,6 +329,17 @@ export default function Home() {
             </div>
           )}
 
+          {/* New Chat Button */}
+          {isSignedIn && (
+            <button
+              onClick={clearChat}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 text-purple-300 text-xs font-medium transition-colors"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              New Chat
+            </button>
+          )}
+
           {/* History Feed */}
           <div className="flex-1 overflow-y-auto flex flex-col gap-2 pr-1">
             <span className="text-[11px] font-mono text-slate-400 uppercase tracking-wider px-1">
@@ -225,7 +361,7 @@ export default function Home() {
                     key={job.id}
                     onClick={() => {
                       router.push(`/search/${job.id}`);
-                      if (window.innerWidth < 768) setSidebarOpen(false);
+                      if (isMobile) setSidebarOpen(false);
                     }}
                     className="w-full text-left px-3 py-2 rounded-lg hover:bg-[#1e2330] text-xs text-slate-300 hover:text-white truncate transition-all group flex items-center justify-between"
                   >
@@ -239,10 +375,10 @@ export default function Home() {
         </div>
       </aside>
 
-      {/* MAIN VIEWPORT */}
+      {/* MAIN CHAT VIEWPORT */}
       <div className="relative z-10 flex-1 flex flex-col h-full overflow-hidden bg-[#0f1117] w-full">
         {/* TOP BAR */}
-        <header className="w-full py-3 px-4 md:px-6 flex items-center justify-between border-b border-slate-800/80 bg-[#161922]/70 backdrop-blur-md">
+        <header className="w-full py-2.5 px-4 md:px-6 flex items-center justify-between border-b border-slate-800/80 bg-[#161922]/70 backdrop-blur-md">
           <div className="flex items-center gap-3">
             {!sidebarOpen && (
               <button
@@ -286,195 +422,199 @@ export default function Home() {
           )}
         </header>
 
-        {/* CHAT MAIN CONTENT AREA */}
-        <main className="flex-1 overflow-y-auto px-4 py-6 md:py-10 flex flex-col items-center justify-between">
-          <div className="w-full max-w-2xl flex flex-col items-center text-center my-auto gap-6 md:gap-8">
-            {/* Glowing Hero Orb */}
-            <div className="relative flex items-center justify-center">
-              <div className="absolute w-20 h-20 md:w-24 md:h-24 bg-purple-600/30 rounded-full blur-2xl animate-pulse" />
-              <div className="relative w-14 h-14 md:w-16 md:h-16 rounded-full bg-[#161922] border border-purple-500/30 flex items-center justify-center shadow-lg">
-                <Sparkles className="h-6 w-6 md:h-7 md:w-7 text-purple-400" />
-              </div>
-            </div>
-
-            {/* Title Section */}
-            <div className="flex flex-col gap-1.5 px-2">
-              <h2 className="text-base md:text-xl font-medium text-purple-400">
-                {greeting}
-              </h2>
-              <h1 className="text-xl sm:text-2xl md:text-4xl font-light tracking-tight text-slate-100">
-                {isSignedIn
-                  ? "How can I assist you today?"
-                  : "Pakistan Business Data Discovery"}
-              </h1>
-              {!isSignedIn && (
-                <p className="text-sm text-slate-400 mt-1">
-                  Sign in to search hundreds of businesses across Pakistan — restaurants, hotels, clinics, and more.
-                </p>
-              )}
-            </div>
-
-            {/* Search form — only for signed-in users */}
-            {isSignedIn ? (
-              <div className="w-full flex flex-col gap-3">
-                <form
-                  onSubmit={handleSubmit}
-                  className="w-full bg-[#161922] border border-slate-700/70 rounded-xl p-3.5 md:p-4 shadow-xl focus-within:border-purple-500/80 transition-all flex flex-col gap-3 md:gap-4"
+        {/* MESSAGES AREA */}
+        <main className="flex-1 overflow-y-auto px-4 py-6 md:py-10 flex flex-col">
+          <div className="max-w-3xl mx-auto w-full flex-1 flex flex-col gap-4">
+            <AnimatePresence initial={false}>
+              {messages.map((msg) => (
+                <motion.div
+                  key={msg.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className={`flex ${
+                    msg.role === "user" ? "justify-end" : "justify-start"
+                  }`}
                 >
+                  <div
+                    className={`max-w-[85%] md:max-w-[75%] rounded-2xl px-4 py-3 ${
+                      msg.role === "user"
+                        ? "bg-purple-600/80 text-white"
+                        : "bg-[#1e2330] text-slate-200 border border-slate-700/50"
+                    }`}
+                  >
+                    <div className="text-sm leading-relaxed whitespace-pre-wrap">
+                      {msg.content}
+                      {msg.isTyping && (
+                        <span className="inline-flex ml-1">
+                          <span className="animate-pulse">.</span>
+                          <span className="animate-pulse delay-150">.</span>
+                          <span className="animate-pulse delay-300">.</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+
+            {/* Suggestion Cards (only show if only welcome message exists and signed in) */}
+            {isSignedIn && messages.length === 1 && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 }}
+                className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 md:gap-3 mt-2"
+              >
+                {SUGGESTIONS.map((s, idx) => {
+                  const IconComp = s.icon;
+                  return (
+                    <div
+                      key={idx}
+                      onClick={() => handleSuggestionClick(s.desc)}
+                      className="p-3.5 md:p-4 bg-[#161922] border border-slate-800 hover:border-purple-500/50 rounded-xl text-left transition-all hover:-translate-y-0.5 shadow-md flex flex-col gap-1.5 md:gap-2 group cursor-pointer"
+                    >
+                      <IconComp className="h-4 w-4 text-purple-400" />
+                      <h4 className="text-xs font-semibold text-slate-200 group-hover:text-purple-300 transition-colors">
+                        {s.title}
+                      </h4>
+                      <p className="text-[11px] text-slate-400 leading-relaxed line-clamp-2">
+                        {s.desc}
+                      </p>
+                    </div>
+                  );
+                })}
+              </motion.div>
+            )}
+
+            {/* Example Chips (only if welcome message and signed in) */}
+            {isSignedIn && messages.length === 1 && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.4 }}
+                className="flex flex-wrap justify-center gap-1.5 mt-2"
+              >
+                {EXAMPLES.map((ex, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleExampleClick(ex)}
+                    className="text-[10px] md:text-[11px] bg-[#161922] hover:bg-purple-950/40 border border-slate-800 hover:border-purple-800/60 rounded-full px-2.5 py-1 text-slate-300 hover:text-purple-200 transition-all text-left max-w-full truncate"
+                  >
+                    &quot;{ex}&quot;
+                  </button>
+                ))}
+              </motion.div>
+            )}
+
+            {/* Error message */}
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="mt-3 p-3 bg-red-950/60 border border-red-500/40 text-red-200 text-xs rounded-lg flex items-start gap-2.5 text-left"
+              >
+                <AlertTriangle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
+                <span>{error}</span>
+              </motion.div>
+            )}
+
+            <div ref={messagesEndRef} />
+          </div>
+        </main>
+
+        {/* INPUT AREA - fixed at bottom */}
+        <div className="w-full border-t border-slate-800/80 bg-[#161922]/90 backdrop-blur-md px-4 py-3">
+          <div className="max-w-3xl mx-auto w-full">
+            {isSignedIn ? (
+              <form onSubmit={handleSubmit} className="relative flex items-end gap-2">
+                <div className="flex-1 relative">
                   <textarea
-                    value={command}
-                    onChange={(e) => setCommand(e.target.value)}
+                    ref={inputRef}
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
                     disabled={isSubmitting}
                     placeholder="Ask me anything or enter extraction parameters..."
-                    rows={3}
-                    className="w-full bg-transparent border-0 outline-none resize-none text-xs md:text-sm text-slate-100 placeholder-slate-500 font-medium"
+                    rows={1}
+                    className="w-full bg-[#0f1117] border border-slate-700 rounded-xl px-4 py-2.5 pr-12 text-sm text-slate-100 placeholder-slate-500 resize-none focus:outline-none focus:border-purple-500/70 transition-colors"
+                    style={{ minHeight: "44px", maxHeight: "120px" }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSubmit(e);
+                      }
+                    }}
                   />
-
-                  {/* Inner Action Bar */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800">
-                    <div className="flex items-center gap-1.5 md:gap-2">
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-purple-950/50 border border-purple-700/50 rounded-full text-[11px] md:text-xs text-purple-300 font-medium">
-                        <Sparkles className="h-3 w-3 md:h-3.5 md:w-3.5 text-purple-400" />
-                        Deeper Research
-                      </span>
-                      <button type="button" className="p-1.5 text-slate-400 hover:text-slate-200 rounded-md transition-colors">
-                        <ImageIcon className="h-4 w-4" />
-                      </button>
-                      <button type="button" className="p-1.5 text-slate-400 hover:text-slate-200 rounded-md transition-colors">
-                        <Lightbulb className="h-4 w-4" />
-                      </button>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 md:gap-2">
-                      <button type="button" className="hidden sm:block p-1.5 text-slate-400 hover:text-slate-200 rounded-md transition-colors">
-                        <Cpu className="h-4 w-4" />
-                      </button>
-                      <button type="button" className="hidden sm:block p-1.5 text-slate-400 hover:text-slate-200 rounded-md transition-colors">
-                        <Globe className="h-4 w-4" />
-                      </button>
-                      <button type="button" className="p-1.5 md:p-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-full transition-colors">
-                        <Mic className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={isSubmitting || !command.trim()}
-                        className="p-1.5 md:p-2 bg-purple-600 hover:bg-purple-500 text-white rounded-full disabled:opacity-40 transition-all shadow-md ml-0.5"
-                      >
-                        {isSubmitting ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <ArrowRight className="h-4 w-4" />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </form>
-
-                {/* Saved Prompts Banner Pill */}
-                <div className="w-full bg-[#161922]/80 border border-slate-800 rounded-lg px-3.5 py-2 md:py-2.5 flex items-center justify-between text-xs text-slate-300">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="h-3.5 w-3.5 text-purple-400 shrink-0" />
-                    <span className="font-medium text-slate-200 text-[11px] md:text-xs">
-                      Saved prompt templates
-                    </span>
-                  </div>
-                  <button className="flex items-center gap-1 px-2 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-md text-[10px] md:text-[11px] font-medium text-slate-200 transition-colors">
-                    <Paperclip className="h-3 w-3" />
-                    <span>Attach file</span>
-                  </button>
-                </div>
-
-                {/* Example Query Chips */}
-                <div className="flex flex-wrap justify-center gap-1.5 mt-1">
-                  {EXAMPLES.map((ex, idx) => (
+                  <div className="absolute right-2 bottom-2 flex items-center gap-1">
                     <button
-                      key={idx}
-                      onClick={() => handleExampleClick(ex)}
-                      className="text-[10px] md:text-[11px] bg-[#161922] hover:bg-purple-950/40 border border-slate-800 hover:border-purple-800/60 rounded-full px-2.5 py-1 text-slate-300 hover:text-purple-200 transition-all text-left max-w-full truncate"
+                      type="button"
+                      className="p-1.5 text-slate-400 hover:text-slate-200 rounded-md transition-colors"
                     >
-                      &quot;{ex}&quot;
+                      <Paperclip className="h-4 w-4" />
                     </button>
-                  ))}
-                </div>
-
-                {/* Error Popup */}
-                <AnimatePresence>
-                  {error && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -10 }}
-                      className="mt-3 p-3 bg-red-950/60 border border-red-500/40 text-red-200 text-xs rounded-lg flex items-start gap-2.5 text-left"
+                    <button
+                      type="button"
+                      className="p-1.5 text-slate-400 hover:text-slate-200 rounded-md transition-colors"
                     >
-                      <AlertTriangle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
-                      <span>{error}</span>
-                    </motion.div>
+                      <Mic className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  disabled={isSubmitting || !inputValue.trim()}
+                  className="p-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl disabled:opacity-40 transition-all shadow-md shrink-0"
+                >
+                  {isSubmitting ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <ArrowRight className="h-5 w-5" />
                   )}
-                </AnimatePresence>
-              </div>
+                </button>
+              </form>
             ) : (
-              /* Unauthenticated CTA */
-              <div className="w-full flex flex-col items-center gap-4">
+              /* Unauthenticated CTA in input area */
+              <div className="flex flex-col items-center gap-2 py-2">
+                <p className="text-sm text-slate-400">Sign in to start chatting</p>
                 <div className="flex items-center gap-3">
                   <SignUpButton mode="modal">
-                    <button className="px-5 py-2.5 bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold rounded-xl transition-all shadow-lg shadow-purple-900/40 flex items-center gap-2">
+                    <button className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium rounded-xl transition-all shadow-lg shadow-purple-900/40 flex items-center gap-2">
                       <Sparkles className="h-4 w-4" />
                       Get started free
                     </button>
                   </SignUpButton>
                   <SignInButton mode="modal">
-                    <button className="px-5 py-2.5 bg-transparent border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-slate-100 text-sm font-medium rounded-xl transition-colors">
+                    <button className="px-4 py-2 bg-transparent border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-slate-100 text-sm font-medium rounded-xl transition-colors">
                       Sign in
                     </button>
                   </SignInButton>
                 </div>
-                <p className="text-[11px] text-slate-500 font-mono">
+                <p className="text-[10px] text-slate-500 font-mono">
                   Free account · No credit card required
                 </p>
               </div>
             )}
-
-            {/* Bottom Recommendation Cards */}
-            <div className="w-full grid grid-cols-1 sm:grid-cols-3 gap-2.5 md:gap-3 mt-1">
-              {SUGGESTIONS.map((s, idx) => {
-                const IconComp = s.icon;
-                return (
-                  <div
-                    key={idx}
-                    onClick={() => isSignedIn && setCommand(s.desc)}
-                    className={`p-3.5 md:p-4 bg-[#161922] border border-slate-800 hover:border-purple-500/50 rounded-xl text-left transition-all hover:-translate-y-0.5 shadow-md flex flex-col gap-1.5 md:gap-2 group ${isSignedIn ? "cursor-pointer" : "cursor-default opacity-70"}`}
-                  >
-                    <IconComp className="h-4 w-4 text-purple-400" />
-                    <h4 className="text-xs font-semibold text-slate-200 group-hover:text-purple-300 transition-colors">
-                      {s.title}
-                    </h4>
-                    <p className="text-[11px] text-slate-400 leading-relaxed line-clamp-2">
-                      {s.desc}
-                    </p>
-                  </div>
-                );
-              })}
-            </div>
           </div>
+        </div>
 
-          {/* Footer */}
-          <footer className="w-full pt-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px] text-slate-500 font-mono text-center sm:text-left">
-            <span>
-              Join the data community for more insights{" "}
-              <a href="#" className="underline text-purple-400 hover:text-purple-300">
-                Join Discord
-              </a>
-            </span>
-            <div className="flex items-center gap-2">
-              <button className="p-1.5 hover:text-slate-300 transition-colors">
-                <Languages className="h-4 w-4" />
-              </button>
-              <button className="p-1.5 hover:text-slate-300 transition-colors">
-                <HelpCircle className="h-4 w-4" />
-              </button>
-            </div>
-          </footer>
-        </main>
+        {/* Footer (hidden in chat view, but we'll keep a small one) */}
+        <footer className="w-full py-2 px-4 flex items-center justify-between text-[10px] text-slate-500 font-mono border-t border-slate-800/40 bg-[#0f1117]/80">
+          <span>
+            Join the data community{" "}
+            <a href="#" className="underline text-purple-400 hover:text-purple-300">
+              Join Discord
+            </a>
+          </span>
+          <div className="flex items-center gap-2">
+            <button className="p-1 hover:text-slate-300 transition-colors">
+              <Languages className="h-3.5 w-3.5" />
+            </button>
+            <button className="p-1 hover:text-slate-300 transition-colors">
+              <HelpCircle className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </footer>
       </div>
     </div>
   );

@@ -6,6 +6,7 @@ import { expandCategoryWithAI } from "./category-expander";
 import { generateGeographicGrid, buildGridQueries, needsGeographicGrid } from "./geographic-grid";
 import { textSearch } from "./google-places";
 import { deduplicate } from "./deduplicator";
+import { smartDeduplicate } from "../deduplication/deduplicate";
 import { filterAndRank, calculateQualityScore } from "./ranking";
 import { classifyCompleteness } from "./normalizer";
 import { updateSearchJob, saveBusinesses } from "../db";
@@ -1118,9 +1119,38 @@ export async function runSearchWorkflow(
       } as PlaceRecord;
     });
 
-    // Full multi-field deduplication (catches same business, different place IDs)
-    const unique = deduplicate(normalized);
-    const duplicatesRemoved = normalized.length - unique.length;
+    // Full smart deduplication with scoring, clustering, and merge
+    const dedupResult = smartDeduplicate(normalized);
+    const unique: PlaceRecord[] = dedupResult.uniqueBusinesses.map((br) => {
+      // Convert BusinessRecord back to PlaceRecord for downstream pipeline
+      if (br._original) return br._original;
+      // Reconstruct from BusinessRecord fields
+      return {
+        place_id: br.placeId || null,
+        business_name: br.name,
+        category: br.category || searchPlan!.category || null,
+        address: br.address || null,
+        area: br.area || null,
+        city: br.city || null,
+        district: br.district || null,
+        province: br.province || null,
+        country: br.country || "Pakistan",
+        phone: br.phone || null,
+        website: br.website || null,
+        google_maps_url: br.googleMapsUrl || null,
+        latitude: br.latitude ?? null,
+        longitude: br.longitude ?? null,
+        rating: br.rating ?? null,
+        review_count: br.reviewCount ?? null,
+        business_status: br.businessStatus || null,
+        source: br.source || "Google Places API (New)",
+        retrieved_at: new Date().toISOString(),
+        // Attach dedup metadata
+        data_completeness: undefined as any,
+      } as PlaceRecord;
+    });
+    const duplicatesRemoved = dedupResult.duplicatesRemoved;
+    const duplicateGroups = dedupResult.duplicateGroups;
 
     // Classify data completeness for each record
     for (const record of unique) {
@@ -1204,6 +1234,29 @@ export async function runSearchWorkflow(
       parsedQuery: JSON.stringify({
         query: searchPlan,
         statistics: searchStats,
+        deduplicationResult: {
+          rawCount: dedupResult.rawCount,
+          uniqueCount: dedupResult.uniqueCount,
+          duplicatesRemoved: dedupResult.duplicatesRemoved,
+          duplicateGroupCount: dedupResult.duplicateGroupCount,
+          duplicateGroups: duplicateGroups.map((g: any) => ({
+            groupId: g.groupId,
+            masterRecordId: g.masterRecordId,
+            duplicateScore: g.duplicateScore,
+            reason: g.reason,
+            recordCount: g.records.length,
+            records: g.records.map((r: any) => ({
+              name: r.name,
+              address: r.address,
+              phone: r.phone,
+              website: r.website,
+              area: r.area,
+              city: r.city,
+              latitude: r.latitude,
+              longitude: r.longitude,
+            })),
+          })),
+        },
         progress: {
           stage: "Preparing results",
           detail: `Discovered ${businessesToSave.length} businesses (${fullResults} full, ${partialResults} partial, ${nameOnlyResults} name-only). ${duplicatesRemoved} duplicates removed across ${queriesRun} queries.`,
