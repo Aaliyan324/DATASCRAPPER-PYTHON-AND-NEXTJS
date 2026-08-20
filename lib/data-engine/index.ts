@@ -8,3 +8,4 @@ export * from "./location-resolver";
 export * from "./query-expander";
 export * from "./google-places";
 export * from "./ai/query-understanding";
+export * from "./social";

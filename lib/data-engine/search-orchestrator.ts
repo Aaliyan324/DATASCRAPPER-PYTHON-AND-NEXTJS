@@ -6,6 +6,7 @@ import { textSearch } from "./google-places";
 import { deduplicate } from "./deduplicator";
 import { filterAndRank, calculateQualityScore } from "./ranking";
 import { updateSearchJob, saveBusinesses } from "../db";
+import { enrichBusinessesWithSocial, getSocialConfig } from "./social";
 
 // ─────────────────────────────────────────────────────────────────
 // Geographic zone databases (sub-areas for major Pakistani cities)
@@ -1103,10 +1104,52 @@ export async function runSearchWorkflow(
         review_count: r.review_count || null,
         qualityScore: calculateQualityScore(r),
         distance_km: r.distance_km || null,
-      },
+      } as Record<string, unknown>,
     }));
 
     await saveBusinesses(jobId, businessesToSave);
+
+    // ── 7. SOCIAL ENRICHMENT ────────────────────────────────────────
+    const socialConfig = getSocialConfig();
+    if (socialConfig.enabled && final.length > 0) {
+      await updateJobProgress(jobId, searchPlan, "SCRAPING", 92,
+        "Finding social profiles",
+        `Enriching ${final.length} businesses with social media data…`);
+
+      try {
+        const socialResults = await enrichBusinessesWithSocial(final, (completed, total, name) => {
+          const pct = Math.min(92 + Math.floor((completed / total) * 7), 99);
+          updateJobProgress(jobId, searchPlan!, "SCRAPING", pct,
+            "Finding social profiles",
+            `Enriched ${completed}/${total} — latest: ${name}`).catch(() => {});
+        });
+
+        // Merge social data into business additionalData
+        for (const biz of businessesToSave) {
+          const placeId = final.find(f =>
+            (f.business_name === biz.name) && (f.city === biz.city)
+          )?.place_id;
+
+          if (placeId && socialResults.has(placeId)) {
+            const socialResult = socialResults.get(placeId)!;
+            biz.additionalData = {
+              ...biz.additionalData,
+              social: socialResult.profiles,
+              socialEnrichedAt: socialResult.enrichedAt,
+              socialStatus: socialResult.overallStatus,
+            };
+          }
+        }
+
+        // Re-save with social data
+        await saveBusinesses(jobId, businessesToSave);
+
+        const socialFound = Array.from(socialResults.values()).filter(r => r.overallStatus === "FOUND").length;
+        console.log(`[Job ${jobId}] Social enrichment done: ${socialFound}/${final.length} have profiles`);
+      } catch (socialErr) {
+        console.error(`[Job ${jobId}] Social enrichment failed (non-fatal):`, socialErr);
+      }
+    }
 
     await updateSearchJob(jobId, {
       status: "COMPLETED",

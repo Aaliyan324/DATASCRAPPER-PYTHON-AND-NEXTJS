@@ -32,10 +32,28 @@ import {
   Filter,
   Layers,
   BarChart3,
+  Share2,
+  CheckCircle2,
+  XCircle,
+  HelpCircle,
 } from "lucide-react";
 import { exportToExcel, exportToPDF, exportToCSV } from "@/lib/exporter";
 import { SearchJob, Business } from "@/lib/db";
 import { SearchPlan } from "@/lib/data-engine";
+import { SocialProfiles, SocialProfile, formatSocialCount } from "@/lib/data-engine/social";
+import dynamic from "next/dynamic";
+
+const BusinessMap = dynamic(() => import("@/components/map/BusinessMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full h-full bg-[#161922] border border-slate-800 rounded-xl flex items-center justify-center">
+      <div className="flex flex-col items-center gap-3">
+        <Loader2 className="h-8 w-8 text-purple-400 animate-spin" />
+        <span className="text-xs font-mono text-slate-400">Loading map...</span>
+      </div>
+    </div>
+  ),
+});
 
 interface ParsedQueryData {
   query: SearchPlan;
@@ -53,6 +71,7 @@ const STAGES = [
   "Collecting data",
   "Cleaning results",
   "Removing duplicates",
+  "Finding social profiles",
   "Finalizing results"
 ];
 
@@ -137,6 +156,8 @@ export default function SearchResultsPage() {
   const [filterHasPhone, setFilterHasPhone] = useState(false);
   const [filterHasWebsite, setFilterHasWebsite] = useState(false);
   const [filterCategory, setFilterCategory] = useState("all");
+  const [filterHasSocial, setFilterHasSocial] = useState(false);
+  const [filterSocialPlatform, setFilterSocialPlatform] = useState("all");
   const [sortBy, setSortBy] = useState<keyof Business>("name");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
@@ -147,6 +168,10 @@ export default function SearchResultsPage() {
   // Detail Drawer
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+
+  // Map Integration
+  const [viewMode, setViewMode] = useState<"split" | "list" | "map">("split");
+  const [selectedBusinessId, setSelectedBusinessId] = useState<string | null>(null);
 
   // Polling Job Status
   useEffect(() => {
@@ -238,7 +263,8 @@ export default function SearchResultsPage() {
     if (stageStr.includes("collect") || stageStr.includes("scrap") || stageStr.includes("geocod")) return 4;
     if (stageStr.includes("clean") || stageStr.includes("normaliz")) return 5;
     if (stageStr.includes("deduplicat") || stageStr.includes("remov")) return 6;
-    if (stageStr.includes("final") || stageStr.includes("complet")) return 7;
+    if (stageStr.includes("social") || stageStr.includes("enrich")) return 7;
+    if (stageStr.includes("final") || stageStr.includes("complet") || stageStr.includes("preparing")) return 8;
 
     return 4;
   }, [decodedQuery?.progress?.stage]);
@@ -306,6 +332,25 @@ export default function SearchResultsPage() {
       list = list.filter((b) => !!b.website);
     }
 
+    if (filterHasSocial) {
+      list = list.filter((b) => {
+        const social: SocialProfiles | null = b.additionalData?.social || null;
+        if (!social) return false;
+        return Object.values(social).some(
+          (p) => p !== null && (p as SocialProfile).status === "FOUND" && (p as SocialProfile).url !== null
+        );
+      });
+    }
+
+    if (filterSocialPlatform !== "all") {
+      list = list.filter((b) => {
+        const social: SocialProfiles | null = b.additionalData?.social || null;
+        if (!social) return false;
+        const profile = social[filterSocialPlatform as keyof SocialProfiles] as SocialProfile | null;
+        return profile !== null && profile.status === "FOUND" && profile.url !== null;
+      });
+    }
+
     list.sort((a, b) => {
       let valA = a[sortBy];
       let valB = b[sortBy];
@@ -327,7 +372,7 @@ export default function SearchResultsPage() {
     });
 
     return list;
-  }, [results, searchTerm, filterCity, filterCategory, filterMinRating, filterHasPhone, filterHasWebsite, sortBy, sortOrder]);
+  }, [results, searchTerm, filterCity, filterCategory, filterMinRating, filterHasPhone, filterHasWebsite, filterHasSocial, filterSocialPlatform, sortBy, sortOrder]);
 
   // Paginated Segment
   const paginatedBusinesses = useMemo(() => {
@@ -339,7 +384,7 @@ export default function SearchResultsPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, filterCity, filterCategory, filterMinRating, filterHasPhone, filterHasWebsite]);
+  }, [searchTerm, filterCity, filterCategory, filterMinRating, filterHasPhone, filterHasWebsite, filterHasSocial, filterSocialPlatform]);
 
   // Export handlers
   const handleExcelExport = () => {
@@ -355,6 +400,28 @@ export default function SearchResultsPage() {
   const handleCSVExport = () => {
     if (!job) return;
     exportToCSV(filteredAndSortedBusinesses, job.originalCommand);
+  };
+
+  // Map interaction handlers
+  const handleMapBusinessSelect = (business: Business) => {
+    if (!business) {
+      setSelectedBusinessId(null);
+      return;
+    }
+    setSelectedBusinessId(business.id);
+  };
+
+  const handleMapViewDetails = (business: Business) => {
+    setSelectedBusiness(business);
+  };
+
+  const handleTableBusinessClick = (business: Business) => {
+    setSelectedBusinessId(business.id);
+    setSelectedBusiness(business);
+  };
+
+  const handleMapBoundsChange = (bounds: { north: number; south: number; east: number; west: number }) => {
+    // Could trigger "search this area" functionality here
   };
 
   return (
@@ -630,6 +697,39 @@ export default function SearchResultsPage() {
 
                 {/* Action Buttons */}
                 <div className="flex items-center gap-2 flex-wrap">
+                  {/* View Mode Toggle */}
+                  <div className="flex items-center gap-1 bg-[#0f1117] border border-slate-800 rounded-lg p-1">
+                    <button
+                      onClick={() => setViewMode("list")}
+                      className={`px-3 py-1.5 text-[10px] font-mono font-bold rounded transition-colors ${
+                        viewMode === "list"
+                          ? "bg-purple-600 text-white"
+                          : "text-slate-400 hover:text-slate-200"
+                      }`}
+                    >
+                      LIST
+                    </button>
+                    <button
+                      onClick={() => setViewMode("split")}
+                      className={`px-3 py-1.5 text-[10px] font-mono font-bold rounded transition-colors ${
+                        viewMode === "split"
+                          ? "bg-purple-600 text-white"
+                          : "text-slate-400 hover:text-slate-200"
+                      }`}
+                    >
+                      SPLIT
+                    </button>
+                    <button
+                      onClick={() => setViewMode("map")}
+                      className={`px-3 py-1.5 text-[10px] font-mono font-bold rounded transition-colors ${
+                        viewMode === "map"
+                          ? "bg-purple-600 text-white"
+                          : "text-slate-400 hover:text-slate-200"
+                      }`}
+                    >
+                      MAP
+                    </button>
+                  </div>
                   <button
                     onClick={handleExcelExport}
                     className="flex items-center gap-1.5 py-1.5 px-3 border border-slate-700 bg-[#161922] hover:bg-slate-800 font-mono text-[10px] md:text-xs rounded-lg text-slate-200 transition-all"
@@ -693,7 +793,7 @@ export default function SearchResultsPage() {
                 <button
                   onClick={() => setIsFilterOpen(!isFilterOpen)}
                   className={`flex items-center gap-2 py-2 px-4 border rounded-xl text-xs font-mono transition-all ${
-                    isFilterOpen || filterCity !== "all" || filterCategory !== "all" || filterMinRating > 0 || filterHasPhone || filterHasWebsite
+                    isFilterOpen || filterCity !== "all" || filterCategory !== "all" || filterMinRating > 0 || filterHasPhone || filterHasWebsite || filterHasSocial || filterSocialPlatform !== "all"
                       ? "bg-purple-600 text-white border-purple-600"
                       : "bg-[#161922] text-slate-300 border-slate-800 hover:border-slate-700"
                   }`}
@@ -775,14 +875,51 @@ export default function SearchResultsPage() {
                           />
                           <span>Has Website URL</span>
                         </label>
+                        <label className="flex items-center gap-2 cursor-pointer select-none text-slate-300">
+                          <input
+                            type="checkbox"
+                            checked={filterHasSocial}
+                            onChange={(e) => setFilterHasSocial(e.target.checked)}
+                            className="h-3.5 w-3.5 accent-purple-600 rounded"
+                          />
+                          <span>Has Social Profile</span>
+                        </label>
+                      </div>
+
+                      <div className="flex flex-col gap-2">
+                        <label className="text-slate-400 uppercase tracking-wider text-[10px] font-bold">Social Platform</label>
+                        <select
+                          value={filterSocialPlatform}
+                          onChange={(e) => setFilterSocialPlatform(e.target.value)}
+                          className="p-2 bg-[#0f1117] border border-slate-800 rounded-lg text-slate-200 outline-none focus:border-purple-500/80"
+                        >
+                          <option value="all">Any Platform</option>
+                          <option value="instagram">Instagram</option>
+                          <option value="facebook">Facebook</option>
+                          <option value="tiktok">TikTok</option>
+                          <option value="linkedin">LinkedIn</option>
+                          <option value="youtube">YouTube</option>
+                        </select>
                       </div>
                     </div>
                   </motion.div>
                 )}
               </AnimatePresence>
 
-              {/* Results Table */}
-              <motion.div variants={itemVariants} className="bg-[#161922] border border-slate-800 rounded-xl overflow-hidden">
+              {/* Results and Map Container */}
+              <div className={`flex gap-4 ${
+                viewMode === "split" ? "flex-col lg:flex-row" :
+                viewMode === "list" ? "flex-col" :
+                "flex-col"
+              }`}>
+                {/* Results Table */}
+                {(viewMode === "list" || viewMode === "split") && (
+                  <motion.div 
+                    variants={itemVariants} 
+                    className={`bg-[#161922] border border-slate-800 rounded-xl overflow-hidden ${
+                      viewMode === "split" ? "lg:flex-1 lg:min-w-0" : "w-full"
+                    }`}
+                  >
                 <div className="overflow-x-auto w-full">
                   <table className="w-full border-collapse text-left text-xs">
                     <thead className="bg-[#0f1117] border-b border-slate-800 text-slate-400 font-mono uppercase tracking-wider">
@@ -859,8 +996,10 @@ export default function SearchResultsPage() {
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             transition={{ delay: idx * 0.02 }}
-                            className="group hover:bg-[#1e2330] cursor-pointer transition-colors"
-                            onClick={() => setSelectedBusiness(b)}
+                            className={`group hover:bg-[#1e2330] cursor-pointer transition-colors ${
+                              selectedBusinessId === b.id ? "bg-purple-950/30 border-l-2 border-l-purple-500" : ""
+                            }`}
+                            onClick={() => handleTableBusinessClick(b)}
                           >
                             <td className="py-3 px-4 font-mono text-slate-500">
                               {(currentPage - 1) * pageSize + idx + 1}
@@ -978,6 +1117,27 @@ export default function SearchResultsPage() {
                   </div>
                 )}
               </motion.div>
+                )}
+
+                {/* Map Panel */}
+                {(viewMode === "map" || viewMode === "split") && (
+                  <motion.div 
+                    variants={itemVariants}
+                    className={`bg-[#161922] border border-slate-800 rounded-xl overflow-hidden ${
+                      viewMode === "split" ? "lg:w-1/2 lg:min-w-[400px]" : "w-full"
+                    }`}
+                    style={{ height: "600px", minHeight: "500px" }}
+                  >
+                    <BusinessMap
+                      businesses={filteredAndSortedBusinesses}
+                      selectedBusinessId={selectedBusinessId}
+                      onBusinessSelect={handleMapBusinessSelect}
+                      onViewDetails={handleMapViewDetails}
+                      onBoundsChange={handleMapBoundsChange}
+                    />
+                  </motion.div>
+                )}
+              </div>
 
               {/* Footer */}
               <motion.footer variants={itemVariants} className="pt-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px] text-slate-500 font-mono text-center sm:text-left border-t border-slate-800/80 py-4">
@@ -1133,6 +1293,93 @@ export default function SearchResultsPage() {
                       </div>
                     </div>
                   )}
+
+                  {/* Social Media Section */}
+                  {(() => {
+                    const social: SocialProfiles | null = selectedBusiness.additionalData?.social || null;
+                    if (!social) return null;
+
+                    const platforms: { key: keyof SocialProfiles; label: string; color: string }[] = [
+                      { key: "instagram", label: "Instagram", color: "text-pink-400" },
+                      { key: "facebook", label: "Facebook", color: "text-blue-400" },
+                      { key: "tiktok", label: "TikTok", color: "text-cyan-400" },
+                      { key: "linkedin", label: "LinkedIn", color: "text-sky-400" },
+                      { key: "youtube", label: "YouTube", color: "text-red-400" },
+                    ];
+
+                    const hasAnyProfile = platforms.some(({ key }) => {
+                      const p = social[key] as SocialProfile | null;
+                      return p !== null && p.status === "FOUND" && p.url !== null;
+                    });
+
+                    return (
+                      <div className="flex flex-col gap-3 border-t border-slate-800 pt-4">
+                        <div className="flex items-center gap-2">
+                          <Share2 className="h-4 w-4 text-purple-400" />
+                          <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">Social Media</span>
+                        </div>
+                        <div className="grid grid-cols-1 gap-2">
+                          {platforms.map(({ key, label, color }) => {
+                            const profile = social[key] as SocialProfile | null;
+                            if (!profile) return null;
+
+                            if (profile.status === "FOUND" && profile.url) {
+                              return (
+                                <a
+                                  key={key}
+                                  href={profile.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center justify-between bg-[#0f1117] border border-slate-800 rounded-lg p-2.5 hover:border-purple-500/40 transition-colors group"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <div className="flex flex-col gap-0.5">
+                                    <span className={`text-xs font-semibold ${color}`}>
+                                      {label}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 font-mono">
+                                      @{profile.username || "profile"}
+                                    </span>
+                                  </div>
+                                  <div className="flex flex-col items-end gap-0.5">
+                                    {profile.followers !== null && (
+                                      <span className="text-[10px] font-mono text-slate-300">
+                                        {formatSocialCount(profile.followers)} followers
+                                      </span>
+                                    )}
+                                    {profile.posts !== null && (
+                                      <span className="text-[10px] font-mono text-slate-500">
+                                        {profile.posts} posts
+                                      </span>
+                                    )}
+                                    <span className="text-[9px] font-mono text-emerald-500 flex items-center gap-0.5">
+                                      <CheckCircle2 className="h-2.5 w-2.5" />
+                                      {Math.round(profile.confidence * 100)}% match
+                                    </span>
+                                  </div>
+                                </a>
+                              );
+                            }
+
+                            return (
+                              <div
+                                key={key}
+                                className="flex items-center justify-between bg-[#0f1117] border border-slate-800/50 rounded-lg p-2.5 opacity-50"
+                              >
+                                <span className="text-xs text-slate-500">{label}</span>
+                                <span className="text-[10px] text-slate-600 font-mono">Not found</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {social.instagram && social.instagram.lastChecked && (
+                          <span className="text-[9px] text-slate-600 font-mono">
+                            Last checked: {new Date(social.instagram.lastChecked).toLocaleString()}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {selectedBusiness.additionalData && (

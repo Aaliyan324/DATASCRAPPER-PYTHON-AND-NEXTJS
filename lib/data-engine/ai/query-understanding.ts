@@ -93,6 +93,31 @@ Recognize and skip these filler/context words when extracting locations:
 Normalize Urdu script before extraction. Handle:
   ساہیوال = Sahiwal, لاہور = Lahore, اسلام آباد = Islamabad, etc.
 
+=== SOCIAL MEDIA INTELLIGENCE ===
+
+Detect if the user wants businesses with social media presence.
+
+Supported platforms: instagram, facebook, tiktok, linkedin, youtube
+
+Patterns to detect:
+- "with Instagram" / "jin ka Instagram hai" / "with Facebook pages"
+- "Instagram followers above 10k" / "10 hazar se zyada Instagram followers"
+- "with TikTok" / "with more than 5k followers"
+
+Extract:
+- socialPlatform: which platform (default instagram if unspecified)
+- socialRequired: true if user explicitly wants businesses with social presence
+- followerFilter: { operator: "gte" | "gt" | "lt" | "lte" | "eq", value: number }
+
+Roman Urdu patterns:
+- "jin ka Instagram hai" → socialRequired: true
+- "10 hazar se zyada followers" → followerFilter: { operator: "gte", value: 10000 }
+- "Instagram wali cafes" → socialPlatform: "instagram", socialRequired: true
+- "active Instagram" → socialPlatform: "instagram", socialRequired: true
+
+Number parsing:
+- "10k" → 10000, "10 hazar" → 10000, "1 lakh" → 100000, "1M" → 1000000
+
 === GENERAL RULES ===
 
 - Resolve locations against Pakistan.
@@ -202,6 +227,30 @@ const SEARCH_PLAN_SCHEMA = {
     export_format: {
       type: "STRING",
       enum: ["excel", "pdf", "both"],
+    },
+    social: {
+      type: "OBJECT",
+      properties: {
+        platform: {
+          type: "STRING",
+          enum: ["instagram", "facebook", "tiktok", "linkedin", "youtube"],
+        },
+        socialRequired: {
+          type: "BOOLEAN",
+        },
+        followerFilter: {
+          type: "OBJECT",
+          properties: {
+            operator: {
+              type: "STRING",
+              enum: ["gt", "lt", "gte", "lte", "eq"],
+            },
+            value: {
+              type: "NUMBER",
+            },
+          },
+        },
+      },
     },
   },
   required: ["category", "location", "filters", "fields"],

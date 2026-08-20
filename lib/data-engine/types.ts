@@ -65,6 +65,15 @@ export interface SearchPlan {
   export_format?: "excel" | "pdf" | "both" | null;
   original_query: string;
   debug_info?: Record<string, any> | null;
+  // Social media intelligence criteria
+  social?: {
+    platform?: "instagram" | "facebook" | "tiktok" | "linkedin" | "youtube" | null;
+    socialRequired?: boolean;
+    followerFilter?: {
+      operator: "gt" | "lt" | "gte" | "lte" | "eq";
+      value: number;
+    } | null;
+  } | null;
 }
 
 export interface PlaceRecord {
