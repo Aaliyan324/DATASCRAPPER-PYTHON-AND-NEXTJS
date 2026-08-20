@@ -32,7 +32,6 @@ import {
   Filter,
   Layers,
   BarChart3,
-  Share2,
   CheckCircle2,
   XCircle,
   HelpCircle,
@@ -40,7 +39,6 @@ import {
 import { exportToExcel, exportToPDF, exportToCSV } from "@/lib/exporter";
 import { SearchJob, Business } from "@/lib/db";
 import { SearchPlan } from "@/lib/data-engine";
-import { SocialProfiles, SocialProfile, formatSocialCount } from "@/lib/data-engine/social";
 import dynamic from "next/dynamic";
 
 const BusinessMap = dynamic(() => import("@/components/map/BusinessMap"), {
@@ -61,6 +59,17 @@ interface ParsedQueryData {
     stage: string;
     detail: string;
   };
+  statistics?: {
+    resultsFound: number;
+    fullResults: number;
+    partialResults: number;
+    nameOnlyResults: number;
+    searchZones: number;
+    queriesExecuted: number;
+    duplicatesRemoved: number;
+    apiRequestsMade: number;
+    searchStatus: string;
+  };
 }
 
 const STAGES = [
@@ -71,7 +80,6 @@ const STAGES = [
   "Collecting data",
   "Cleaning results",
   "Removing duplicates",
-  "Finding social profiles",
   "Finalizing results"
 ];
 
@@ -156,8 +164,6 @@ export default function SearchResultsPage() {
   const [filterHasPhone, setFilterHasPhone] = useState(false);
   const [filterHasWebsite, setFilterHasWebsite] = useState(false);
   const [filterCategory, setFilterCategory] = useState("all");
-  const [filterHasSocial, setFilterHasSocial] = useState(false);
-  const [filterSocialPlatform, setFilterSocialPlatform] = useState("all");
   const [sortBy, setSortBy] = useState<keyof Business>("name");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
@@ -179,10 +185,25 @@ export default function SearchResultsPage() {
 
     let isMounted = true;
     let pollInterval: NodeJS.Timeout;
+    let hasResolved = false;
+
+    const stopPolling = () => {
+      hasResolved = true;
+      clearInterval(pollInterval);
+    };
 
     const fetchJob = async () => {
+      if (hasResolved) return;
       try {
         const res = await fetch(`/api/search/${jobId}`);
+        if (res.status === 404) {
+          stopPolling();
+          if (isMounted) {
+            setError("This search no longer exists or has expired. Please start a new search.");
+            setLoading(false);
+          }
+          return;
+        }
         if (!res.ok) throw new Error("Failed to fetch search job status");
 
         const data = await res.json();
@@ -190,16 +211,17 @@ export default function SearchResultsPage() {
           setJob(data.job);
 
           if (data.job.status === "COMPLETED") {
-            clearInterval(pollInterval);
+            stopPolling();
             fetchResults();
           } else if (data.job.status === "ERROR") {
-            clearInterval(pollInterval);
+            stopPolling();
             setError(data.job.error || "An error occurred during extraction");
             setLoading(false);
           }
         }
       } catch (err: any) {
         console.error(err);
+        stopPolling();
         if (isMounted) {
           setError(err.message || "Failed to load job details");
           setLoading(false);
@@ -212,6 +234,14 @@ export default function SearchResultsPage() {
       setResultsLoading(true);
       try {
         const res = await fetch(`/api/search/${jobId}/results`);
+        if (res.status === 404) {
+          // Job exists but results are missing (data may have been lost)
+          if (isMounted) {
+            setError("Search results are no longer available. Please start a new search.");
+            setLoading(false);
+          }
+          return;
+        }
         if (!res.ok) throw new Error("Failed to load results");
 
         const data = await res.json();
@@ -233,7 +263,7 @@ export default function SearchResultsPage() {
 
     pollInterval = setInterval(() => {
       fetchJob();
-    }, 1000);
+    }, 1500);
 
     return () => {
       isMounted = false;
@@ -263,8 +293,7 @@ export default function SearchResultsPage() {
     if (stageStr.includes("collect") || stageStr.includes("scrap") || stageStr.includes("geocod")) return 4;
     if (stageStr.includes("clean") || stageStr.includes("normaliz")) return 5;
     if (stageStr.includes("deduplicat") || stageStr.includes("remov")) return 6;
-    if (stageStr.includes("social") || stageStr.includes("enrich")) return 7;
-    if (stageStr.includes("final") || stageStr.includes("complet") || stageStr.includes("preparing")) return 8;
+    if (stageStr.includes("final") || stageStr.includes("complet") || stageStr.includes("preparing")) return 7;
 
     return 4;
   }, [decodedQuery?.progress?.stage]);
@@ -332,25 +361,6 @@ export default function SearchResultsPage() {
       list = list.filter((b) => !!b.website);
     }
 
-    if (filterHasSocial) {
-      list = list.filter((b) => {
-        const social: SocialProfiles | null = b.additionalData?.social || null;
-        if (!social) return false;
-        return Object.values(social).some(
-          (p) => p !== null && (p as SocialProfile).status === "FOUND" && (p as SocialProfile).url !== null
-        );
-      });
-    }
-
-    if (filterSocialPlatform !== "all") {
-      list = list.filter((b) => {
-        const social: SocialProfiles | null = b.additionalData?.social || null;
-        if (!social) return false;
-        const profile = social[filterSocialPlatform as keyof SocialProfiles] as SocialProfile | null;
-        return profile !== null && profile.status === "FOUND" && profile.url !== null;
-      });
-    }
-
     list.sort((a, b) => {
       let valA = a[sortBy];
       let valB = b[sortBy];
@@ -372,7 +382,7 @@ export default function SearchResultsPage() {
     });
 
     return list;
-  }, [results, searchTerm, filterCity, filterCategory, filterMinRating, filterHasPhone, filterHasWebsite, filterHasSocial, filterSocialPlatform, sortBy, sortOrder]);
+  }, [results, searchTerm, filterCity, filterCategory, filterMinRating, filterHasPhone, filterHasWebsite, sortBy, sortOrder]);
 
   // Paginated Segment
   const paginatedBusinesses = useMemo(() => {
@@ -384,7 +394,7 @@ export default function SearchResultsPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, filterCity, filterCategory, filterMinRating, filterHasPhone, filterHasWebsite, filterHasSocial, filterSocialPlatform]);
+  }, [searchTerm, filterCity, filterCategory, filterMinRating, filterHasPhone, filterHasWebsite]);
 
   // Export handlers
   const handleExcelExport = () => {
@@ -759,12 +769,23 @@ export default function SearchResultsPage() {
                 variants={containerVariants}
                 className="grid grid-cols-2 md:grid-cols-4 gap-3"
               >
-                {[
-                  { label: "Total Records", value: filteredAndSortedBusinesses.length, sub: `of ${results.length} total found` },
-                  { label: "Location Target", value: decodedQuery?.query.location.city || decodedQuery?.query.location.locality || decodedQuery?.query.location.district || "Pakistan", sub: `Filtered: ${filterCity === "all" ? "All Cities" : filterCity}` },
-                  { label: "Target Category", value: decodedQuery?.query.category || "Business", sub: `Filtered: ${filterCategory === "all" ? "All" : filterCategory}` },
-                  { label: "Data Coverage", value: `${Math.round(((results.filter(r => r.phone).length + results.filter(r => r.website).length) / (results.length * 2 || 1)) * 100)}%`, sub: "Contact detail availability" }
-                ].map((metric, idx) => (
+                {(() => {
+                  const stats = decodedQuery?.statistics;
+                  const completenessData = results.reduce((acc, r) => {
+                    const dc = (r.additionalData as any)?.data_completeness;
+                    if (dc === "FULL") acc.full++;
+                    else if (dc === "PARTIAL") acc.partial++;
+                    else acc.nameOnly++;
+                    return acc;
+                  }, { full: 0, partial: 0, nameOnly: 0 });
+
+                  return [
+                    { label: "Total Records", value: filteredAndSortedBusinesses.length, sub: stats ? `${stats.queriesExecuted} queries, ${stats.duplicatesRemoved} deduped` : `of ${results.length} total found` },
+                    { label: "Data Quality", value: `${Math.round((completenessData.full / (results.length || 1)) * 100)}%`, sub: `${completenessData.full} full, ${completenessData.partial} partial, ${completenessData.nameOnly} name-only` },
+                    { label: "Location Target", value: decodedQuery?.query.location.city || decodedQuery?.query.location.district || "Pakistan", sub: stats ? `${stats.searchZones} zones searched` : `Filtered: ${filterCity === "all" ? "All Cities" : filterCity}` },
+                    { label: "Category", value: decodedQuery?.query.category || "Business", sub: stats?.searchStatus === "COMPLETED" ? "Search complete" : "Limited results" },
+                  ];
+                })().map((metric, idx) => (
                   <motion.div
                     key={idx}
                     variants={itemVariants}
@@ -793,7 +814,7 @@ export default function SearchResultsPage() {
                 <button
                   onClick={() => setIsFilterOpen(!isFilterOpen)}
                   className={`flex items-center gap-2 py-2 px-4 border rounded-xl text-xs font-mono transition-all ${
-                    isFilterOpen || filterCity !== "all" || filterCategory !== "all" || filterMinRating > 0 || filterHasPhone || filterHasWebsite || filterHasSocial || filterSocialPlatform !== "all"
+                    isFilterOpen || filterCity !== "all" || filterCategory !== "all" || filterMinRating > 0 || filterHasPhone || filterHasWebsite
                       ? "bg-purple-600 text-white border-purple-600"
                       : "bg-[#161922] text-slate-300 border-slate-800 hover:border-slate-700"
                   }`}
@@ -875,31 +896,6 @@ export default function SearchResultsPage() {
                           />
                           <span>Has Website URL</span>
                         </label>
-                        <label className="flex items-center gap-2 cursor-pointer select-none text-slate-300">
-                          <input
-                            type="checkbox"
-                            checked={filterHasSocial}
-                            onChange={(e) => setFilterHasSocial(e.target.checked)}
-                            className="h-3.5 w-3.5 accent-purple-600 rounded"
-                          />
-                          <span>Has Social Profile</span>
-                        </label>
-                      </div>
-
-                      <div className="flex flex-col gap-2">
-                        <label className="text-slate-400 uppercase tracking-wider text-[10px] font-bold">Social Platform</label>
-                        <select
-                          value={filterSocialPlatform}
-                          onChange={(e) => setFilterSocialPlatform(e.target.value)}
-                          className="p-2 bg-[#0f1117] border border-slate-800 rounded-lg text-slate-200 outline-none focus:border-purple-500/80"
-                        >
-                          <option value="all">Any Platform</option>
-                          <option value="instagram">Instagram</option>
-                          <option value="facebook">Facebook</option>
-                          <option value="tiktok">TikTok</option>
-                          <option value="linkedin">LinkedIn</option>
-                          <option value="youtube">YouTube</option>
-                        </select>
                       </div>
                     </div>
                   </motion.div>
@@ -1294,92 +1290,6 @@ export default function SearchResultsPage() {
                     </div>
                   )}
 
-                  {/* Social Media Section */}
-                  {(() => {
-                    const social: SocialProfiles | null = selectedBusiness.additionalData?.social || null;
-                    if (!social) return null;
-
-                    const platforms: { key: keyof SocialProfiles; label: string; color: string }[] = [
-                      { key: "instagram", label: "Instagram", color: "text-pink-400" },
-                      { key: "facebook", label: "Facebook", color: "text-blue-400" },
-                      { key: "tiktok", label: "TikTok", color: "text-cyan-400" },
-                      { key: "linkedin", label: "LinkedIn", color: "text-sky-400" },
-                      { key: "youtube", label: "YouTube", color: "text-red-400" },
-                    ];
-
-                    const hasAnyProfile = platforms.some(({ key }) => {
-                      const p = social[key] as SocialProfile | null;
-                      return p !== null && p.status === "FOUND" && p.url !== null;
-                    });
-
-                    return (
-                      <div className="flex flex-col gap-3 border-t border-slate-800 pt-4">
-                        <div className="flex items-center gap-2">
-                          <Share2 className="h-4 w-4 text-purple-400" />
-                          <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">Social Media</span>
-                        </div>
-                        <div className="grid grid-cols-1 gap-2">
-                          {platforms.map(({ key, label, color }) => {
-                            const profile = social[key] as SocialProfile | null;
-                            if (!profile) return null;
-
-                            if (profile.status === "FOUND" && profile.url) {
-                              return (
-                                <a
-                                  key={key}
-                                  href={profile.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="flex items-center justify-between bg-[#0f1117] border border-slate-800 rounded-lg p-2.5 hover:border-purple-500/40 transition-colors group"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <div className="flex flex-col gap-0.5">
-                                    <span className={`text-xs font-semibold ${color}`}>
-                                      {label}
-                                    </span>
-                                    <span className="text-[10px] text-slate-400 font-mono">
-                                      @{profile.username || "profile"}
-                                    </span>
-                                  </div>
-                                  <div className="flex flex-col items-end gap-0.5">
-                                    {profile.followers !== null && (
-                                      <span className="text-[10px] font-mono text-slate-300">
-                                        {formatSocialCount(profile.followers)} followers
-                                      </span>
-                                    )}
-                                    {profile.posts !== null && (
-                                      <span className="text-[10px] font-mono text-slate-500">
-                                        {profile.posts} posts
-                                      </span>
-                                    )}
-                                    <span className="text-[9px] font-mono text-emerald-500 flex items-center gap-0.5">
-                                      <CheckCircle2 className="h-2.5 w-2.5" />
-                                      {Math.round(profile.confidence * 100)}% match
-                                    </span>
-                                  </div>
-                                </a>
-                              );
-                            }
-
-                            return (
-                              <div
-                                key={key}
-                                className="flex items-center justify-between bg-[#0f1117] border border-slate-800/50 rounded-lg p-2.5 opacity-50"
-                              >
-                                <span className="text-xs text-slate-500">{label}</span>
-                                <span className="text-[10px] text-slate-600 font-mono">Not found</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                        {social.instagram && social.instagram.lastChecked && (
-                          <span className="text-[9px] text-slate-600 font-mono">
-                            Last checked: {new Date(social.instagram.lastChecked).toLocaleString()}
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })()}
                 </div>
 
                 {selectedBusiness.additionalData && (

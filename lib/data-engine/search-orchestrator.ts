@@ -1,12 +1,14 @@
-import { SearchPlan, PlaceRecord } from "./types";
+import { SearchPlan, PlaceRecord, SearchStatistics } from "./types";
 import { parseQueryWithGemini } from "./ai/query-understanding";
 import { resolveLocation } from "./location-resolver";
 import { buildSearchQueries } from "./query-expander";
+import { expandCategoryWithAI } from "./category-expander";
+import { generateGeographicGrid, buildGridQueries, needsGeographicGrid } from "./geographic-grid";
 import { textSearch } from "./google-places";
 import { deduplicate } from "./deduplicator";
 import { filterAndRank, calculateQualityScore } from "./ranking";
+import { classifyCompleteness } from "./normalizer";
 import { updateSearchJob, saveBusinesses } from "../db";
-import { enrichBusinessesWithSocial, getSocialConfig } from "./social";
 
 // ─────────────────────────────────────────────────────────────────
 // Geographic zone databases (sub-areas for major Pakistani cities)
@@ -884,7 +886,7 @@ export async function runSearchWorkflow(
 
     // Honour explicit count from query, fall back to caller limit, then default
     if (!searchPlan.requested_result_count) {
-      searchPlan.requested_result_count = limit || 100;
+      searchPlan.requested_result_count = limit || 250;
     }
 
     await updateJobProgress(jobId, searchPlan, "PARSING", 15,
@@ -899,11 +901,18 @@ export async function runSearchWorkflow(
     searchPlan.location = resolvedLocation;
 
     // ── 3. QUERY PLANNING ────────────────────────────────────────
-    const targetResults = searchPlan.requested_result_count || 100;
+    const targetResults = searchPlan.requested_result_count || 250;
     const cityKey = (resolvedLocation.city || "").toLowerCase().replace(/\s+/g, "_");
     const cityKeySpace = (resolvedLocation.city || "").toLowerCase();
 
+    // ── 3a. Category expansion (multi-pass search) ────────────────
+    await updateJobProgress(jobId, searchPlan, "PARSING", 28,
+      "Expanding search categories", `Finding variations of "${searchPlan.category}"`);
+    const categoryVariations = await expandCategoryWithAI(searchPlan.category);
+    console.log(`[Job ${jobId}] Category expanded to ${categoryVariations.length} variations: ${categoryVariations.join(", ")}`);
+
     const allQueries: string[] = [];
+    let searchZonesCount = 0;
 
     // Always try zone-partitioned queries first for any known city
     const zones =
@@ -914,6 +923,7 @@ export async function runSearchWorkflow(
       [];
 
     if (zones.length > 0) {
+      searchZonesCount = zones.length;
       console.log(`[Job ${jobId}] Zone partitioning: ${zones.length} zones for ${resolvedLocation.city}`);
 
       // For each zone generate N variants; limit total zones based on target
@@ -923,15 +933,18 @@ export async function runSearchWorkflow(
             : zones.length;
 
       for (const zone of zones.slice(0, maxZones)) {
-        // 4 variants × 20 results × 3 pages = up to 240 unique results per zone
-        // We cap pages per query to 2 (40 results/query) to stay within budget
         const variants = buildZoneQueryVariants(searchPlan.category, zone, resolvedLocation.city || "");
         allQueries.push(...variants);
       }
 
-      // Also add 2–3 broad city-level sweeps as a second pass to catch stragglers
-      const cat = searchPlan.category;
+      // Add category variation queries at city level for broader coverage
       const city = resolvedLocation.city || resolvedLocation.district || "Pakistan";
+      for (const catVar of categoryVariations.slice(1, 4)) {
+        allQueries.push(`${catVar} in ${city}, Pakistan`);
+      }
+
+      // Also add 2-3 broad city-level sweeps as a second pass to catch stragglers
+      const cat = searchPlan.category;
       allQueries.push(
         `${cat} in ${city}, Pakistan`,
         `${cat}s near ${city} Pakistan`,
@@ -939,10 +952,31 @@ export async function runSearchWorkflow(
       );
 
     } else {
-      // Unknown city / rural / micro-locality — use expander variants
-      console.log(`[Job ${jobId}] No zone map found; using query expander`);
+      // Unknown city / rural / micro-locality
+      console.log(`[Job ${jobId}] No zone map found; using geographic grid + query expander`);
+
+      // Generate geographic grid if we have coordinates
+      if (needsGeographicGrid(resolvedLocation, false)) {
+        const gridCells = generateGeographicGrid(resolvedLocation, targetResults);
+        searchZonesCount = gridCells.length;
+        const gridQueries = buildGridQueries(
+          searchPlan.category,
+          gridCells,
+          resolvedLocation.city || resolvedLocation.district || "Pakistan"
+        );
+        allQueries.push(...gridQueries);
+        console.log(`[Job ${jobId}] Geographic grid: ${gridCells.length} cells generated`);
+      }
+
+      // Also use expander variants
       const baseQueries = buildSearchQueries(searchPlan, 12);
       allQueries.push(...baseQueries);
+
+      // Add category variation queries
+      for (const catVar of categoryVariations.slice(1, 3)) {
+        const loc = resolvedLocation.city || resolvedLocation.district || "Pakistan";
+        allQueries.push(`${catVar} in ${loc}, Pakistan`);
+      }
     }
 
     // Deduplicate query strings case-insensitively
@@ -957,15 +991,14 @@ export async function runSearchWorkflow(
 
     // ── 4. SCRAPING ──────────────────────────────────────────────
     await updateJobProgress(jobId, searchPlan, "SCRAPING", 35,
-      "Connecting to data engine",
-      `${uniqueQueries.length} queries across ${zones.length || 1} area(s)`);
+      "Searching Google Places",
+      `${uniqueQueries.length} queries across ${searchZonesCount || 1} area(s)`);
 
     const rawPlaces: any[] = [];
     // Fast dedup tracker using place IDs during scraping
     const seenPlaceKeys = new Set<string>();
 
     // Budget: pages needed = target * 5 raw headroom / 20 results per page
-    // e.g. target=100 → 500 raw / 20 = 25 pages minimum; we allow up to 400
     const maxApiPages = Math.min(Math.ceil((targetResults * 5) / 20), 400);
     let apiPagesUsed = 0;
     let queriesRun = 0;
@@ -977,18 +1010,29 @@ export async function runSearchWorkflow(
     const batchSize = CONCURRENCY * 4; // 16 queries/batch
     const totalBatches = Math.ceil(uniqueQueries.length / batchSize);
 
+    // Adaptive termination: track new unique places per batch
+    let consecutiveLowYieldBatches = 0;
+    const LOW_YIELD_THRESHOLD = 0.02; // 2% new results = diminishing returns
+    const MAX_LOW_YIELD_BATCHES = 3; // Stop after 3 consecutive low-yield batches
+
     for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
-      // Early exit only when we have 5× the target as raw unique places
-      // (large headroom to survive full multi-field dedup losses)
+      // Early exit: target headroom reached
       if (seenPlaceKeys.size >= targetResults * 5) {
         console.log(`[Job ${jobId}] Raw headroom reached (${seenPlaceKeys.size} unique). Stopping.`);
         break;
       }
+      // Early exit: API budget exhausted
       if (apiPagesUsed >= maxApiPages) {
         console.log(`[Job ${jobId}] API page budget exhausted (${apiPagesUsed}).`);
         break;
       }
+      // Early exit: diminishing returns
+      if (consecutiveLowYieldBatches >= MAX_LOW_YIELD_BATCHES) {
+        console.log(`[Job ${jobId}] Diminishing returns detected (${consecutiveLowYieldBatches} low-yield batches). Stopping.`);
+        break;
+      }
 
+      const batchStartCount = seenPlaceKeys.size;
       const batchQueries = uniqueQueries.slice(batchIdx * batchSize, (batchIdx + 1) * batchSize);
       const progressPct = Math.min(35 + Math.floor((batchIdx / totalBatches) * 50), 84);
 
@@ -1021,6 +1065,16 @@ export async function runSearchWorkflow(
           console.error(`[Job ${jobId}] Error on query "${queryStr}":`, e);
         }
       });
+
+      // Adaptive termination: check if this batch yielded enough new results
+      const batchNewCount = seenPlaceKeys.size - batchStartCount;
+      const yieldRatio = batchStartCount > 0 ? batchNewCount / batchStartCount : 1.0;
+      if (yieldRatio < LOW_YIELD_THRESHOLD && batchIdx > 0) {
+        consecutiveLowYieldBatches++;
+        console.log(`[Job ${jobId}] Low yield batch (${batchNewCount} new, ${Math.round(yieldRatio * 100)}% yield) [${consecutiveLowYieldBatches}/${MAX_LOW_YIELD_BATCHES}]`);
+      } else {
+        consecutiveLowYieldBatches = 0;
+      }
     }
 
     console.log(`[Job ${jobId}] Scraping done. Raw unique: ${rawPlaces.length}. API pages used: ${apiPagesUsed}`);
@@ -1066,8 +1120,15 @@ export async function runSearchWorkflow(
 
     // Full multi-field deduplication (catches same business, different place IDs)
     const unique = deduplicate(normalized);
+    const duplicatesRemoved = normalized.length - unique.length;
+
+    // Classify data completeness for each record
+    for (const record of unique) {
+      record.data_completeness = classifyCompleteness(record);
+    }
 
     // Geo-rank (filter out-of-area, sort by proximity + quality)
+    // Name-only records (no coords) are kept but sorted to the end
     let ranked = unique;
     if (resolvedLocation.latitude || resolvedLocation.city) {
       ranked = filterAndRank(unique, searchPlan);
@@ -1076,7 +1137,25 @@ export async function runSearchWorkflow(
     // Slice to requested count
     const final = ranked.slice(0, targetResults);
 
+    // Compute search statistics
+    const fullResults = final.filter(r => r.data_completeness === "FULL").length;
+    const partialResults = final.filter(r => r.data_completeness === "PARTIAL").length;
+    const nameOnlyResults = final.filter(r => r.data_completeness === "NAME_ONLY").length;
+
+    const searchStats: SearchStatistics = {
+      resultsFound: final.length,
+      fullResults,
+      partialResults,
+      nameOnlyResults,
+      searchZones: searchZonesCount,
+      queriesExecuted: queriesRun,
+      duplicatesRemoved,
+      apiRequestsMade: apiPagesUsed,
+      searchStatus: final.length >= targetResults ? "COMPLETED" : "LIMIT_REACHED",
+    };
+
     console.log(`[Job ${jobId}] After dedup+rank: ${unique.length} unique → delivering ${final.length}`);
+    console.log(`[Job ${jobId}] Completeness: FULL=${fullResults}, PARTIAL=${partialResults}, NAME_ONLY=${nameOnlyResults}`);
 
     // ── 6. SAVE ──────────────────────────────────────────────────
     const businessesToSave = final.map((r) => ({
@@ -1098,58 +1177,22 @@ export async function runSearchWorkflow(
       sourceUrl: r.google_maps_url || null,
       latitude: r.latitude || null,
       longitude: r.longitude || null,
+      placeId: r.place_id || null,
+      dataCompleteness: r.data_completeness || null,
+      googleMapsUrl: r.google_maps_url || null,
+      internationalPhone: r.phone || null,
+      businessStatus: r.business_status || null,
       additionalData: {
         google_maps_url: r.google_maps_url || null,
         business_status: r.business_status || null,
         review_count: r.review_count || null,
         qualityScore: calculateQualityScore(r),
         distance_km: r.distance_km || null,
+        data_completeness: r.data_completeness || "PARTIAL",
       } as Record<string, unknown>,
     }));
 
     await saveBusinesses(jobId, businessesToSave);
-
-    // ── 7. SOCIAL ENRICHMENT ────────────────────────────────────────
-    const socialConfig = getSocialConfig();
-    if (socialConfig.enabled && final.length > 0) {
-      await updateJobProgress(jobId, searchPlan, "SCRAPING", 92,
-        "Finding social profiles",
-        `Enriching ${final.length} businesses with social media data…`);
-
-      try {
-        const socialResults = await enrichBusinessesWithSocial(final, (completed, total, name) => {
-          const pct = Math.min(92 + Math.floor((completed / total) * 7), 99);
-          updateJobProgress(jobId, searchPlan!, "SCRAPING", pct,
-            "Finding social profiles",
-            `Enriched ${completed}/${total} — latest: ${name}`).catch(() => {});
-        });
-
-        // Merge social data into business additionalData
-        for (const biz of businessesToSave) {
-          const placeId = final.find(f =>
-            (f.business_name === biz.name) && (f.city === biz.city)
-          )?.place_id;
-
-          if (placeId && socialResults.has(placeId)) {
-            const socialResult = socialResults.get(placeId)!;
-            biz.additionalData = {
-              ...biz.additionalData,
-              social: socialResult.profiles,
-              socialEnrichedAt: socialResult.enrichedAt,
-              socialStatus: socialResult.overallStatus,
-            };
-          }
-        }
-
-        // Re-save with social data
-        await saveBusinesses(jobId, businessesToSave);
-
-        const socialFound = Array.from(socialResults.values()).filter(r => r.overallStatus === "FOUND").length;
-        console.log(`[Job ${jobId}] Social enrichment done: ${socialFound}/${final.length} have profiles`);
-      } catch (socialErr) {
-        console.error(`[Job ${jobId}] Social enrichment failed (non-fatal):`, socialErr);
-      }
-    }
 
     await updateSearchJob(jobId, {
       status: "COMPLETED",
@@ -1160,9 +1203,10 @@ export async function runSearchWorkflow(
       recordsFound: businessesToSave.length,
       parsedQuery: JSON.stringify({
         query: searchPlan,
+        statistics: searchStats,
         progress: {
           stage: "Preparing results",
-          detail: `Discovered ${businessesToSave.length} unique businesses (${unique.length} after dedup, ${rawPlaces.length} raw).`,
+          detail: `Discovered ${businessesToSave.length} businesses (${fullResults} full, ${partialResults} partial, ${nameOnlyResults} name-only). ${duplicatesRemoved} duplicates removed across ${queriesRun} queries.`,
         },
       }),
     });

@@ -1,36 +1,5 @@
 import * as XLSX from "xlsx";
 import { Business } from "./db";
-import { SocialProfiles, SocialProfile } from "./data-engine/social/types";
-
-/** Helper to extract social profile from business additionalData */
-function getSocial(b: Business): SocialProfiles | null {
-  return b.additionalData?.social || null;
-}
-
-function getPlatformProfile(b: Business, platform: keyof SocialProfiles): SocialProfile | null {
-  const social = getSocial(b);
-  return social ? (social[platform] as SocialProfile | null) : null;
-}
-
-function socialUrl(b: Business, platform: keyof SocialProfiles): string {
-  const p = getPlatformProfile(b, platform);
-  return p?.url || "";
-}
-
-function socialFollowers(b: Business, platform: keyof SocialProfiles): string {
-  const p = getPlatformProfile(b, platform);
-  return p?.followers !== null && p?.followers !== undefined ? String(p.followers) : "";
-}
-
-function socialPosts(b: Business, platform: keyof SocialProfiles): string {
-  const p = getPlatformProfile(b, platform);
-  return p?.posts !== null && p?.posts !== undefined ? String(p.posts) : "";
-}
-
-function socialVideos(b: Business, platform: keyof SocialProfiles): string {
-  const p = getPlatformProfile(b, platform);
-  return p?.videos !== null && p?.videos !== undefined ? String(p.videos) : "";
-}
 
 /**
  * Exports business dataset to an Excel spreadsheet file (.xlsx)
@@ -54,18 +23,7 @@ export function exportToExcel(businesses: Business[], command: string) {
     "Google Maps URL": b.additionalData?.google_maps_url || b.sourceUrl || "",
     Price: b.price || "",
     "Opening Hours": b.openingHours || "",
-    "Instagram URL": socialUrl(b, "instagram"),
-    "Instagram Followers": socialFollowers(b, "instagram"),
-    "Instagram Posts": socialPosts(b, "instagram"),
-    "Facebook URL": socialUrl(b, "facebook"),
-    "Facebook Followers": socialFollowers(b, "facebook"),
-    "TikTok URL": socialUrl(b, "tiktok"),
-    "TikTok Followers": socialFollowers(b, "tiktok"),
-    "TikTok Videos": socialVideos(b, "tiktok"),
-    "LinkedIn URL": socialUrl(b, "linkedin"),
-    "LinkedIn Followers": socialFollowers(b, "linkedin"),
-    "YouTube URL": socialUrl(b, "youtube"),
-    "YouTube Subscribers": socialFollowers(b, "youtube"),
+    "Data Completeness": b.additionalData?.data_completeness || "",
     Source: b.source,
     Latitude: b.latitude || "",
     Longitude: b.longitude || "",
@@ -76,7 +34,7 @@ export function exportToExcel(businesses: Business[], command: string) {
   XLSX.utils.book_append_sheet(workbook, worksheet, "Scraped Data");
 
   // Adjust column widths automatically
-  const maxProps = [{ wch: 4 }, { wch: 30 }, { wch: 15 }, { wch: 40 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 20 }, { wch: 20 }, { wch: 25 }, { wch: 25 }, { wch: 8 }, { wch: 12 }, { wch: 15 }, { wch: 40 }, { wch: 8 }, { wch: 20 }, { wch: 15 }, { wch: 35 }, { wch: 18 }, { wch: 15 }, { wch: 35 }, { wch: 18 }, { wch: 35 }, { wch: 18 }, { wch: 15 }, { wch: 35 }, { wch: 18 }, { wch: 35 }, { wch: 18 }, { wch: 15 }, { wch: 15 }, { wch: 15 }];
+  const maxProps = [{ wch: 4 }, { wch: 30 }, { wch: 15 }, { wch: 40 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 20 }, { wch: 20 }, { wch: 25 }, { wch: 25 }, { wch: 8 }, { wch: 12 }, { wch: 15 }, { wch: 40 }, { wch: 8 }, { wch: 20 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 }];
   worksheet["!cols"] = maxProps;
 
   const safeName = command.toLowerCase().replace(/[^a-z0-9]/g, "_").substring(0, 40);
@@ -91,15 +49,15 @@ export async function exportToPDF(businesses: Business[], command: string) {
   const { default: autoTable } = await import("jspdf-autotable");
   const doc = new jsPDF("landscape"); // Landscape fits tables better
 
-  // Header Style Colors (Primary #4B67A0)
+  // Header style colors
   doc.setFillColor(75, 103, 160);
   doc.rect(0, 0, 297, 24, "F");
 
-  // Title Text
+  // Title text
   doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(16);
-  doc.text("COMMAND-BASED DATA SCRAPER REPORT", 14, 16);
+  doc.text("PAKISTAN BUSINESS DISCOVERY REPORT", 14, 16);
 
   // Metadata block
   doc.setTextColor(0, 0, 0);
@@ -109,7 +67,7 @@ export async function exportToPDF(businesses: Business[], command: string) {
   doc.text(`Search Command: "${command}"`, 14, 32);
   doc.text(`Generated Date: ${new Date().toLocaleString()}`, 14, 38);
   doc.text(`Total Records Found: ${businesses.length}`, 14, 44);
-  doc.text(`Source Engine: Directory Scraper & Search Indexes`, 14, 50);
+  doc.text(`Source Engine: Google Places API`, 14, 50);
 
   // Table structure
   const columns = ["#", "Name", "Category", "City", "Phone", "Website", "Rating", "Reviews", "Address", "Google Maps"];
@@ -126,7 +84,6 @@ export async function exportToPDF(businesses: Business[], command: string) {
     b.additionalData?.google_maps_url || b.sourceUrl || "",
   ]);
 
-  // Generate Table using standalone function call
   // @ts-ignore
   autoTable(doc, {
     startY: 56,
@@ -155,7 +112,6 @@ export async function exportToPDF(businesses: Business[], command: string) {
       9: { cellWidth: 45 },
     },
     didDrawPage: (data: any) => {
-      // Footer page numbering
       const str = "Page " + doc.getNumberOfPages();
       doc.setFontSize(8);
       const pageSize = doc.internal.pageSize;
@@ -172,7 +128,7 @@ export async function exportToPDF(businesses: Business[], command: string) {
  * Exports business dataset to standard comma-separated-values (.csv)
  */
 export function exportToCSV(businesses: Business[], command: string) {
-  const headers = ["#", "Name", "Category", "Address", "Area", "City", "Country", "Phone", "Phone National", "Email", "Website", "Google Maps URL", "Rating", "Review Count", "Business Status", "Price", "Opening Hours", "Instagram URL", "Instagram Followers", "Instagram Posts", "Facebook URL", "Facebook Followers", "TikTok URL", "TikTok Followers", "TikTok Videos", "LinkedIn URL", "LinkedIn Followers", "YouTube URL", "YouTube Subscribers", "Source", "Latitude", "Longitude"];
+  const headers = ["#", "Name", "Category", "Address", "Area", "City", "Country", "Phone", "Phone National", "Email", "Website", "Google Maps URL", "Rating", "Review Count", "Business Status", "Price", "Opening Hours", "Data Completeness", "Source", "Latitude", "Longitude"];
 
   const csvRows = [
     headers.join(","),
@@ -195,18 +151,7 @@ export function exportToCSV(businesses: Business[], command: string) {
         b.additionalData?.business_status || "",
         b.price || "",
         b.openingHours || "",
-        socialUrl(b, "instagram"),
-        socialFollowers(b, "instagram"),
-        socialPosts(b, "instagram"),
-        socialUrl(b, "facebook"),
-        socialFollowers(b, "facebook"),
-        socialUrl(b, "tiktok"),
-        socialFollowers(b, "tiktok"),
-        socialVideos(b, "tiktok"),
-        socialUrl(b, "linkedin"),
-        socialFollowers(b, "linkedin"),
-        socialUrl(b, "youtube"),
-        socialFollowers(b, "youtube"),
+        b.additionalData?.data_completeness || "",
         b.source,
         b.latitude || "",
         b.longitude || "",

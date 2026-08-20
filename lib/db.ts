@@ -16,6 +16,10 @@ export interface SearchJob {
   progress: number;
   currentStage: string | null;
   recordsFound: number;
+  searchStatistics?: any | null;
+  searchZones?: number | null;
+  queriesExecuted?: number | null;
+  duplicatesRemoved?: number | null;
   createdAt: Date;
   startedAt: Date | null;
   completedAt: Date | null;
@@ -42,6 +46,11 @@ export interface Business {
   sourceUrl: string | null;
   latitude: number | null;
   longitude: number | null;
+  placeId: string | null;
+  dataCompleteness: string | null;
+  googleMapsUrl: string | null;
+  internationalPhone: string | null;
+  businessStatus: string | null;
   additionalData: any | null;
   createdAt: Date;
   updatedAt: Date;
@@ -202,7 +211,7 @@ export async function getSearchJob(jobId: string): Promise<SearchJob | null> {
           status: job.status as JobStatus,
         };
       }
-      return null;
+      // Not found in Prisma — fall through to JSON fallback
     } catch (e) {
       console.error("Prisma error in getSearchJob, falling back:", e);
     }
@@ -276,6 +285,8 @@ export async function saveBusinesses(
               phone: biz.phone ?? existingBiz.phone,
               website: biz.website ?? existingBiz.website,
               address: biz.address ?? existingBiz.address,
+              dataCompleteness: (biz.additionalData as any)?.data_completeness ?? existingBiz.dataCompleteness,
+              businessStatus: (biz.additionalData as any)?.business_status ?? existingBiz.businessStatus,
               additionalData: biz.additionalData ? (biz.additionalData as any) : undefined,
             },
           });
@@ -301,6 +312,9 @@ export async function saveBusinesses(
               sourceUrl: biz.sourceUrl,
               latitude: biz.latitude,
               longitude: biz.longitude,
+              dataCompleteness: (biz.additionalData as any)?.data_completeness || null,
+              googleMapsUrl: (biz.additionalData as any)?.google_maps_url || biz.sourceUrl || null,
+              businessStatus: (biz.additionalData as any)?.business_status || null,
               additionalData: biz.additionalData ? (biz.additionalData as any) : undefined,
             },
           });

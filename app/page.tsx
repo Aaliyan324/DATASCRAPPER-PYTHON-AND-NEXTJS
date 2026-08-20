@@ -40,27 +40,29 @@ interface HistoryJob {
 }
 
 const EXAMPLES = [
-  "Restaurants in Gujrat with phone numbers and website",
-  "Hotels in Islamabad with ratings above 4",
-  "Software houses in Islamabad with websites",
-  "Dentists in Rawalpindi with phone numbers and addresses",
+  "Mobile shops in Johar Town Lahore with phone numbers",
+  "Best restaurants in Clifton Karachi with ratings and addresses",
+  "Pharmacies near F-7 Islamabad with contact details",
+  "Real estate agents in DHA Phase 5 Lahore",
+  "Auto repair workshops in Gujranwala with phone numbers",
+  "Solar panel dealers in Bahawalpur with websites",
 ];
 
 const SUGGESTIONS = [
   {
     icon: Database,
-    title: "Synthesize Data",
-    desc: "Extract public business directories into structured CSV datasets.",
+    title: "Discover Businesses",
+    desc: "Find any type of business across Pakistan with complete contact details.",
   },
   {
     icon: Lightbulb,
-    title: "Directory Scraping",
-    desc: "Query software houses or healthcare entities with contact details.",
+    title: "Smart Search",
+    desc: "Search in English, Urdu, or Roman Urdu — our AI understands natural language.",
   },
   {
     icon: SlidersHorizontal,
-    title: "Filtered Parameters",
-    desc: "Target specific cities and ratings criteria in plain text.",
+    title: "Area Coverage",
+    desc: "From major cities to rural areas — geographic grid search covers it all.",
   },
 ];
 

@@ -1,6 +1,27 @@
 import { SearchPlan, PlaceRecord } from "./types";
 
 /**
+ * Classifies a place record's data completeness.
+ * - FULL: has phone + website + address + coordinates + rating
+ * - PARTIAL: has at least 2 of the above
+ * - NAME_ONLY: only name (or name + category)
+ */
+export function classifyCompleteness(record: PlaceRecord): "FULL" | "PARTIAL" | "NAME_ONLY" {
+  const hasPhone = !!record.phone;
+  const hasWebsite = !!record.website;
+  const hasAddress = !!record.address;
+  const hasCoords = record.latitude != null && record.longitude != null;
+  const hasRating = record.rating != null;
+
+  const fields = [hasPhone, hasWebsite, hasAddress, hasCoords, hasRating];
+  const count = fields.filter(Boolean).length;
+
+  if (count >= 4) return "FULL";
+  if (count >= 1) return "PARTIAL";
+  return "NAME_ONLY";
+}
+
+/**
  * Normalizes phone numbers to standard Pakistani international format: +923XXXXXXXXX
  */
 export function normalizePhone(value: string | null | undefined): string | null {

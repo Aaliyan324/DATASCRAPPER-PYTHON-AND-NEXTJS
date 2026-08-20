@@ -6,9 +6,13 @@ import {
   Map,
   useMap,
   MapCameraChangedEvent,
+  AdvancedMarker,
+  Pin,
 } from "@vis.gl/react-google-maps";
-import BusinessMarker from "./BusinessMarker";
+import { MarkerClusterer } from "@googlemaps/markerclusterer";
+import type { Marker } from "@googlemaps/markerclusterer";
 import MapControls from "./MapControls";
+import MapInfoWindow from "./MapInfoWindow";
 import MapFallback from "./MapFallback";
 import type { Business } from "@/lib/db";
 
@@ -39,6 +43,8 @@ function MapContent({
   const [mapType, setMapType] = useState<"roadmap" | "satellite">("roadmap");
   const [showSearchArea, setShowSearchArea] = useState(false);
   const lastBoundsRef = useRef<MapBounds | null>(null);
+  const markerClusterRef = useRef<MarkerClusterer | null>(null);
+  const markersRef = useRef<Record<string, any>>({});
 
   // Filter businesses with valid coordinates
   const businessesWithCoords = useMemo(() => {
@@ -50,6 +56,9 @@ function MapContent({
         b.longitude !== undefined
     );
   }, [businesses]);
+
+  // Use clustering for 50+ markers, individual markers for fewer
+  const useClustering = businessesWithCoords.length >= 50;
 
   // Fit bounds when businesses change
   useEffect(() => {
@@ -146,22 +155,91 @@ function MapContent({
 
   // Close info window
   const handleClose = useCallback(() => {
-    // Deselect by passing a business with null id - parent handles this
     onBusinessSelect(null as unknown as Business);
   }, [onBusinessSelect]);
 
+  // Initialize / update marker clusterer for large datasets
+  useEffect(() => {
+    if (!map || !useClustering) {
+      // Clean up cluster if switching away from clustering
+      if (markerClusterRef.current) {
+        markerClusterRef.current.clearMarkers();
+        markerClusterRef.current.setMap(null);
+        markerClusterRef.current = null;
+      }
+      return;
+    }
+
+    // Clear existing markers
+    markerClusterRef.current?.clearMarkers();
+    markersRef.current = {};
+
+    if (!markerClusterRef.current) {
+      markerClusterRef.current = new MarkerClusterer({ map });
+    }
+
+    // Guard: ensure the marker library is loaded
+    if (!window.google?.maps?.marker?.AdvancedMarkerElement) return;
+
+    // Create new AdvancedMarkerElements for all businesses
+    const newMarkers: Marker[] = businessesWithCoords.map((business) => {
+      const marker = new google.maps.marker.AdvancedMarkerElement({
+        position: { lat: business.latitude!, lng: business.longitude! },
+        title: business.name,
+      });
+
+      marker.addListener("click", () => {
+        onBusinessSelect(business);
+      });
+
+      markersRef.current[business.id] = marker;
+      return marker;
+    });
+
+    markerClusterRef.current.addMarkers(newMarkers);
+  }, [map, businessesWithCoords, useClustering, onBusinessSelect]);
+
+  // Clean up clusterer on unmount
+  useEffect(() => {
+    return () => {
+      if (markerClusterRef.current) {
+        markerClusterRef.current.clearMarkers();
+        markerClusterRef.current.setMap(null);
+        markerClusterRef.current = null;
+      }
+    };
+  }, []);
+
   return (
     <>
-      {businessesWithCoords.map((business) => (
-        <BusinessMarker
+      {/* Individual markers for small datasets (< 50) */}
+      {!useClustering && businessesWithCoords.map((business) => (
+        <AdvancedMarker
           key={business.id}
-          business={business}
-          isSelected={business.id === selectedBusinessId}
-          onSelect={onBusinessSelect}
-          onViewDetails={onViewDetails}
-          onClose={handleClose}
-        />
+          position={{ lat: business.latitude!, lng: business.longitude! }}
+          onClick={() => onBusinessSelect(business)}
+          title={business.name}
+        >
+          <Pin
+            background={business.id === selectedBusinessId ? "#9333ea" : "#7c3aed"}
+            borderColor={business.id === selectedBusinessId ? "#a855f7" : "#8b5cf6"}
+            glyphColor="#fff"
+            scale={business.id === selectedBusinessId ? 1.3 : 1}
+          />
+        </AdvancedMarker>
       ))}
+      {/* Info window for selected business */}
+      {!useClustering && selectedBusinessId && (() => {
+        const selected = businessesWithCoords.find(b => b.id === selectedBusinessId);
+        if (!selected) return null;
+        return (
+          <MapInfoWindow
+            business={selected}
+            onClose={() => onBusinessSelect(null as unknown as Business)}
+            onViewDetails={onViewDetails}
+          />
+        );
+      })()}
       <MapControls
         mapType={mapType}
         onMapTypeChange={setMapType}
@@ -207,6 +285,7 @@ export default function BusinessMap(props: BusinessMapProps) {
     <div className="relative w-full h-full bg-[#161922] border border-slate-800 rounded-xl overflow-hidden">
       <APIProvider
         apiKey={apiKey}
+        libraries={["marker"]}
         onError={() => setMapError(true)}
       >
         <Map

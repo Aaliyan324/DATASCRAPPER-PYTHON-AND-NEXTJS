@@ -69,7 +69,7 @@ export async function POST(request: Request) {
     // 3. Run the search workflow in background (do not await)
     (async () => {
       try {
-        await runSearchWorkflow(job.id, command, 100);
+        await runSearchWorkflow(job.id, command, 250);
       } catch (err: any) {
         console.error("Background search workflow error:", err);
       }

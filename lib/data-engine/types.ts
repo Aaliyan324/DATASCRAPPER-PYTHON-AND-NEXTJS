@@ -65,15 +65,6 @@ export interface SearchPlan {
   export_format?: "excel" | "pdf" | "both" | null;
   original_query: string;
   debug_info?: Record<string, any> | null;
-  // Social media intelligence criteria
-  social?: {
-    platform?: "instagram" | "facebook" | "tiktok" | "linkedin" | "youtube" | null;
-    socialRequired?: boolean;
-    followerFilter?: {
-      operator: "gt" | "lt" | "gte" | "lte" | "eq";
-      value: number;
-    } | null;
-  } | null;
 }
 
 export interface PlaceRecord {
@@ -100,4 +91,18 @@ export interface PlaceRecord {
   // Geographic validation fields
   distance_km?: number | null;
   location_match_score?: number | null;
+  // Data completeness classification
+  data_completeness?: "FULL" | "PARTIAL" | "NAME_ONLY";
+}
+
+export interface SearchStatistics {
+  resultsFound: number;
+  fullResults: number;
+  partialResults: number;
+  nameOnlyResults: number;
+  searchZones: number;
+  queriesExecuted: number;
+  duplicatesRemoved: number;
+  apiRequestsMade: number;
+  searchStatus: "COMPLETED" | "PARTIAL" | "LIMIT_REACHED";
 }
