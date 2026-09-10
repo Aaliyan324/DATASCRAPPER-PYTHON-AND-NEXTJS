@@ -25,14 +25,14 @@ export default function SignInPage() {
         {/* Styled Clerk Component */}
         <SignIn
           appearance={{
-            baseTheme: dark,
+            theme: dark,
             variables: {
               colorPrimary: "#a855f7",
               colorBackground: "#161922",
-              colorInputBackground: "#0f1117",
-              colorInputText: "#ffffff",
-              colorText: "#ffffff",
-              colorTextSecondary: "#94a3b8",
+              colorInput: "#0f1117",
+              colorInputForeground: "#ffffff",
+              colorForeground: "#ffffff",
+              colorMutedForeground: "#94a3b8",
             },
             elements: {
               card: "shadow-2xl border border-slate-800 bg-[#161922]/90 backdrop-blur-xl",

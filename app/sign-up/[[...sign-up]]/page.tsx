@@ -27,10 +27,10 @@ export default function SignUpPage() {
             variables: {
               colorPrimary: "#8b5cf6", // Purple-500
               colorBackground: "#161922", // Card dark surface
-              colorText: "#f8fafc", // Slate-50 high contrast text
-              colorTextSecondary: "#94a3b8", // Slate-400 readable body text
-              colorInputBackground: "#0f1117", // Input background
-              colorInputText: "#ffffff",
+              colorForeground: "#f8fafc", // Slate-50 high contrast text
+              colorMutedForeground: "#94a3b8", // Slate-400 readable body text
+              colorInput: "#0f1117", // Input background
+              colorInputForeground: "#ffffff",
               colorBorder: "#272a37",
               borderRadius: "0.75rem",
             },
