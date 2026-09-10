@@ -6,8 +6,7 @@ import { expandCategoryWithAI } from "./category-expander";
 import { generateGeographicGrid, buildGridQueries, needsGeographicGrid } from "./geographic-grid";
 import { textSearch } from "./google-places";
 import { deduplicate } from "./deduplicator";
-import { smartDeduplicate } from "../deduplication/deduplicate";
-import { filterAndRank, calculateQualityScore } from "./ranking";
+import { calculateQualityScore } from "./ranking";
 import { classifyCompleteness } from "./normalizer";
 import { updateSearchJob, saveBusinesses } from "../db";
 
@@ -1080,92 +1079,55 @@ export async function runSearchWorkflow(
 
     console.log(`[Job ${jobId}] Scraping done. Raw unique: ${rawPlaces.length}. API pages used: ${apiPagesUsed}`);
 
-    // ── 5. NORMALISE ─────────────────────────────────────────────
-    await updateJobProgress(jobId, searchPlan, "SCRAPING", 86,
-      "Normalizing & deduplicating",
-      `${rawPlaces.length} raw records → running full deduplication…`);
+    // ── 5. PREPARE RESULTS ─────────────────────────────────────────────
+    // Cleaning stages (fuzzy dedup + geo-ranking) were removed for speed.
+    // Scraping already de-duplicates by place key, so records are unique by
+    // place_id. We only do the cheap per-record field mapping needed to persist
+    // them, then slice to the requested count.
+    await updateJobProgress(jobId, searchPlan, "SCRAPING", 90,
+      "Preparing results",
+      `${rawPlaces.length} records collected → saving…`);
 
-    const normalized: PlaceRecord[] = rawPlaces.map((raw) => {
-      const display = raw.displayName || {};
-      const loc = raw.location || {};
-      const address = raw.formattedAddress || null;
+    const final: PlaceRecord[] = rawPlaces
+      .map((raw) => {
+        const display = raw.displayName || {};
+        const loc = raw.location || {};
+        const address = raw.formattedAddress || null;
 
-      let area: string | null = null;
-      if (address) {
-        const parts = address.split(",").map((p: string) => p.trim()).filter(Boolean);
-        if (parts.length >= 3) area = parts[parts.length - 3];
-      }
+        let area: string | null = null;
+        if (address) {
+          const parts = address.split(",").map((p: string) => p.trim()).filter(Boolean);
+          if (parts.length >= 3) area = parts[parts.length - 3];
+        }
 
-      return {
-        place_id: raw.id,
-        business_name: display.text || "Unknown",
-        category: searchPlan!.category,
-        address,
-        area,
-        city: resolvedLocation.city,
-        district: resolvedLocation.district,
-        province: resolvedLocation.province,
-        country: "Pakistan",
-        phone: raw.nationalPhoneNumber || raw.internationalPhoneNumber || null,
-        website: raw.websiteUri || null,
-        google_maps_url: raw.googleMapsUri || null,
-        latitude: loc.latitude ?? null,
-        longitude: loc.longitude ?? null,
-        rating: raw.rating ?? null,
-        review_count: raw.userRatingCount ?? null,
-        business_status: raw.businessStatus ?? null,
-        source: "Google Places API (New)",
-        retrieved_at: raw._retrieved_at,
-      } as PlaceRecord;
-    });
+        const record = {
+          place_id: raw.id,
+          business_name: display.text || "Unknown",
+          category: searchPlan!.category,
+          address,
+          area,
+          city: resolvedLocation.city,
+          district: resolvedLocation.district,
+          province: resolvedLocation.province,
+          country: "Pakistan",
+          phone: raw.nationalPhoneNumber || raw.internationalPhoneNumber || null,
+          website: raw.websiteUri || null,
+          google_maps_url: raw.googleMapsUri || null,
+          latitude: loc.latitude ?? null,
+          longitude: loc.longitude ?? null,
+          rating: raw.rating ?? null,
+          review_count: raw.userRatingCount ?? null,
+          business_status: raw.businessStatus ?? null,
+          source: "Google Places API (New)",
+          retrieved_at: raw._retrieved_at,
+        } as PlaceRecord;
 
-    // Full smart deduplication with scoring, clustering, and merge
-    const dedupResult = smartDeduplicate(normalized);
-    const unique: PlaceRecord[] = dedupResult.uniqueBusinesses.map((br) => {
-      // Convert BusinessRecord back to PlaceRecord for downstream pipeline
-      if (br._original) return br._original;
-      // Reconstruct from BusinessRecord fields
-      return {
-        place_id: br.placeId || null,
-        business_name: br.name,
-        category: br.category || searchPlan!.category || null,
-        address: br.address || null,
-        area: br.area || null,
-        city: br.city || null,
-        district: br.district || null,
-        province: br.province || null,
-        country: br.country || "Pakistan",
-        phone: br.phone || null,
-        website: br.website || null,
-        google_maps_url: br.googleMapsUrl || null,
-        latitude: br.latitude ?? null,
-        longitude: br.longitude ?? null,
-        rating: br.rating ?? null,
-        review_count: br.reviewCount ?? null,
-        business_status: br.businessStatus || null,
-        source: br.source || "Google Places API (New)",
-        retrieved_at: new Date().toISOString(),
-        // Attach dedup metadata
-        data_completeness: undefined as any,
-      } as PlaceRecord;
-    });
-    const duplicatesRemoved = dedupResult.duplicatesRemoved;
-    const duplicateGroups = dedupResult.duplicateGroups;
+        record.data_completeness = classifyCompleteness(record);
+        return record;
+      })
+      .slice(0, targetResults);
 
-    // Classify data completeness for each record
-    for (const record of unique) {
-      record.data_completeness = classifyCompleteness(record);
-    }
-
-    // Geo-rank (filter out-of-area, sort by proximity + quality)
-    // Name-only records (no coords) are kept but sorted to the end
-    let ranked = unique;
-    if (resolvedLocation.latitude || resolvedLocation.city) {
-      ranked = filterAndRank(unique, searchPlan);
-    }
-
-    // Slice to requested count
-    const final = ranked.slice(0, targetResults);
+    const duplicatesRemoved = 0;
 
     // Compute search statistics
     const fullResults = final.filter(r => r.data_completeness === "FULL").length;
@@ -1184,8 +1146,7 @@ export async function runSearchWorkflow(
       searchStatus: final.length >= targetResults ? "COMPLETED" : "LIMIT_REACHED",
     };
 
-    console.log(`[Job ${jobId}] After dedup+rank: ${unique.length} unique → delivering ${final.length}`);
-    console.log(`[Job ${jobId}] Completeness: FULL=${fullResults}, PARTIAL=${partialResults}, NAME_ONLY=${nameOnlyResults}`);
+    console.log(`[Job ${jobId}] Prepared ${final.length} records (cleaning/dedup/ranking skipped).`);
 
     // ── 6. SAVE ──────────────────────────────────────────────────
     const businessesToSave = final.map((r) => ({
@@ -1235,27 +1196,11 @@ export async function runSearchWorkflow(
         query: searchPlan,
         statistics: searchStats,
         deduplicationResult: {
-          rawCount: dedupResult.rawCount,
-          uniqueCount: dedupResult.uniqueCount,
-          duplicatesRemoved: dedupResult.duplicatesRemoved,
-          duplicateGroupCount: dedupResult.duplicateGroupCount,
-          duplicateGroups: duplicateGroups.map((g: any) => ({
-            groupId: g.groupId,
-            masterRecordId: g.masterRecordId,
-            duplicateScore: g.duplicateScore,
-            reason: g.reason,
-            recordCount: g.records.length,
-            records: g.records.map((r: any) => ({
-              name: r.name,
-              address: r.address,
-              phone: r.phone,
-              website: r.website,
-              area: r.area,
-              city: r.city,
-              latitude: r.latitude,
-              longitude: r.longitude,
-            })),
-          })),
+          rawCount: rawPlaces.length,
+          uniqueCount: final.length,
+          duplicatesRemoved: 0,
+          duplicateGroupCount: 0,
+          duplicateGroups: [],
         },
         progress: {
           stage: "Preparing results",

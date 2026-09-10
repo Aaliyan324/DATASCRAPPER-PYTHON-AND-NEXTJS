@@ -1,6 +1,8 @@
 import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 import fs from "fs";
 import path from "path";
+import { randomUUID } from "crypto";
 
 // Define Types aligned with Prisma schema
 export type JobStatus = "PENDING" | "PARSING" | "SCRAPING" | "COMPLETED" | "ERROR" | "QUEUED" | "FAILED";
@@ -110,7 +112,9 @@ const isDatabaseConfigured = !!process.env.DATABASE_URL;
 
 if (isDatabaseConfigured) {
   try {
-    prisma = new PrismaClient();
+    // Prisma 7 requires a driver adapter to connect at runtime.
+    const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
+    prisma = new PrismaClient({ adapter });
   } catch (e) {
     console.error("Prisma client failed to initialize, using JSON fallback:", e);
   }
@@ -256,102 +260,120 @@ export async function saveBusinesses(
 
   if (prisma) {
     try {
-      for (const biz of businessesData) {
-        // Simple deduplication logic: find existing business by phone or website or name+city
-        let existingBiz = null;
-        if (biz.phone) {
-          existingBiz = await prisma.business.findFirst({
-            where: { phone: biz.phone },
-          });
-        }
-        if (!existingBiz && biz.website) {
-          existingBiz = await prisma.business.findFirst({
-            where: { website: biz.website },
-          });
-        }
-        if (!existingBiz && biz.name && biz.city) {
-          existingBiz = await prisma.business.findFirst({
-            where: { name: biz.name, city: biz.city },
-          });
-        }
+      // ── Bulk save: avoids N sequential round-trips to the remote DB ──
+      // (the previous per-record loop took ~2s/business over Neon, so a 250-row
+      // save ran for minutes and the job never reached COMPLETED).
 
-        let finalBiz;
-        if (existingBiz) {
-          // Update details if necessary
-          finalBiz = await prisma.business.update({
-            where: { id: existingBiz.id },
-            data: {
-              rating: biz.rating ?? existingBiz.rating,
-              phone: biz.phone ?? existingBiz.phone,
-              website: biz.website ?? existingBiz.website,
-              address: biz.address ?? existingBiz.address,
-              dataCompleteness: (biz.additionalData as any)?.data_completeness ?? existingBiz.dataCompleteness,
-              businessStatus: (biz.additionalData as any)?.business_status ?? existingBiz.businessStatus,
-              additionalData: biz.additionalData ? (biz.additionalData as any) : undefined,
-            },
-          });
-        } else {
-          // Create new business
-          finalBiz = await prisma.business.create({
-            data: {
-              name: biz.name,
-              category: biz.category,
-              address: biz.address,
-              area: biz.area,
-              city: biz.city,
-              country: biz.country,
-              phone: biz.phone,
-              email: biz.email,
-              website: biz.website,
-              rating: biz.rating,
-              reviewCount: biz.reviewCount,
-              price: biz.price,
-              openingHours: biz.openingHours,
-              description: biz.description,
-              source: biz.source,
-              sourceUrl: biz.sourceUrl,
-              latitude: biz.latitude,
-              longitude: biz.longitude,
-              dataCompleteness: (biz.additionalData as any)?.data_completeness || null,
-              googleMapsUrl: (biz.additionalData as any)?.google_maps_url || biz.sourceUrl || null,
-              businessStatus: (biz.additionalData as any)?.business_status || null,
-              additionalData: biz.additionalData ? (biz.additionalData as any) : undefined,
-            },
-          });
-        }
-
-        // Link to job if not already linked
-        const existingLink = await prisma.jobResult.findUnique({
-          where: {
-            jobId_businessId: {
-              jobId,
-              businessId: finalBiz.id,
-            },
-          },
-        });
-
-        if (!existingLink) {
-          await prisma.jobResult.create({
-            data: {
-              jobId,
-              businessId: finalBiz.id,
-            },
-          });
-        }
-
-        saved.push({
-          ...finalBiz,
-          additionalData: finalBiz.additionalData,
-        } as Business);
-      }
-
-      // Update job total count
-      await prisma.searchJob.update({
-        where: { id: jobId },
-        data: { totalResults: saved.length },
+      // 1. De-dup within the batch by placeId → phone → name|city (in memory).
+      const batchSeen = new Set<string>();
+      const candidates = businessesData.filter((biz) => {
+        const b = biz as any;
+        const key =
+          b.placeId ||
+          biz.phone ||
+          `${(biz.name || "").toLowerCase()}|${(biz.city || "").toLowerCase()}`;
+        if (batchSeen.has(key)) return false;
+        batchSeen.add(key);
+        return true;
       });
 
-      return saved;
+      // 2. One query to find which of these already exist in the DB.
+      const placeIds = candidates
+        .map((b) => (b as any).placeId)
+        .filter(Boolean) as string[];
+      const phones = candidates.map((b) => b.phone).filter(Boolean) as string[];
+      const orConditions: any[] = [];
+      if (placeIds.length) orConditions.push({ placeId: { in: placeIds } });
+      if (phones.length) orConditions.push({ phone: { in: phones } });
+
+      const existing = orConditions.length
+        ? await prisma.business.findMany({
+            where: { OR: orConditions },
+            select: { id: true, placeId: true, phone: true },
+          })
+        : [];
+      const existingByPlaceId = new Map<string, string>();
+      const existingByPhone = new Map<string, string>();
+      for (const e of existing) {
+        if (e.placeId) existingByPlaceId.set(e.placeId, e.id);
+        if (e.phone) existingByPhone.set(e.phone, e.id);
+      }
+
+      // 3. Split into rows to insert vs. existing rows to just re-link.
+      const linkedBusinessIds: string[] = [];
+      const toCreate: any[] = [];
+      for (const biz of candidates) {
+        const b = biz as any;
+        const placeId = (b.placeId as string | null) ?? null;
+        const matchId =
+          (placeId && existingByPlaceId.get(placeId)) ||
+          (biz.phone && existingByPhone.get(biz.phone)) ||
+          null;
+        if (matchId) {
+          linkedBusinessIds.push(matchId);
+          continue;
+        }
+        const id = randomUUID();
+        linkedBusinessIds.push(id);
+        toCreate.push({
+          id,
+          name: biz.name,
+          category: biz.category,
+          address: biz.address,
+          area: biz.area,
+          city: biz.city,
+          country: biz.country,
+          phone: biz.phone,
+          email: biz.email,
+          website: biz.website,
+          rating: biz.rating,
+          reviewCount: biz.reviewCount,
+          price: biz.price,
+          openingHours: biz.openingHours,
+          description: biz.description,
+          source: biz.source,
+          sourceUrl: biz.sourceUrl,
+          latitude: biz.latitude,
+          longitude: biz.longitude,
+          placeId,
+          internationalPhone: b.internationalPhone ?? biz.phone ?? null,
+          dataCompleteness:
+            (biz.additionalData as any)?.data_completeness ?? b.dataCompleteness ?? null,
+          googleMapsUrl:
+            (biz.additionalData as any)?.google_maps_url || biz.sourceUrl || null,
+          businessStatus:
+            (biz.additionalData as any)?.business_status ?? b.businessStatus ?? null,
+          additionalData: biz.additionalData ? (biz.additionalData as any) : undefined,
+        });
+      }
+
+      // 4. Bulk insert new businesses.
+      if (toCreate.length > 0) {
+        await prisma.business.createMany({ data: toCreate, skipDuplicates: true });
+      }
+
+      // 5. Bulk link all businesses to the job.
+      if (linkedBusinessIds.length > 0) {
+        await prisma.jobResult.createMany({
+          data: linkedBusinessIds.map((businessId) => ({ jobId, businessId })),
+          skipDuplicates: true,
+        });
+      }
+
+      // 6. Update job total count.
+      await prisma.searchJob.update({
+        where: { id: jobId },
+        data: { totalResults: linkedBusinessIds.length },
+      });
+
+      // 7. Return the saved rows.
+      if (linkedBusinessIds.length === 0) return [];
+      const savedRows = await prisma.business.findMany({
+        where: { id: { in: linkedBusinessIds } },
+      });
+      return savedRows.map(
+        (b) => ({ ...b, additionalData: b.additionalData }) as Business
+      );
     } catch (e) {
       console.error("Prisma error in saveBusinesses, falling back:", e);
     }

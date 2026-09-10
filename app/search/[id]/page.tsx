@@ -80,8 +80,6 @@ const STAGES = [
   "Connecting to data engine",
   "Searching Google Places",
   "Collecting data",
-  "Cleaning results",
-  "Removing duplicates",
   "Finalizing results"
 ];
 
@@ -296,12 +294,10 @@ export default function SearchResultsPage() {
 
     if (stageStr.includes("understand")) return 0;
     if (stageStr.includes("pars") || stageStr.includes("identif") || stageStr.includes("criteria")) return 1;
-    if (stageStr.includes("connect") || stageStr.includes("prepar")) return 2;
+    if (stageStr.includes("connect")) return 2;
     if (stageStr.includes("search") || stageStr.includes("google") || stageStr.includes("discover") || stageStr.includes("source")) return 3;
     if (stageStr.includes("collect") || stageStr.includes("scrap") || stageStr.includes("geocod")) return 4;
-    if (stageStr.includes("clean") || stageStr.includes("normaliz")) return 5;
-    if (stageStr.includes("deduplicat") || stageStr.includes("remov")) return 6;
-    if (stageStr.includes("final") || stageStr.includes("complet") || stageStr.includes("preparing")) return 7;
+    if (stageStr.includes("final") || stageStr.includes("complet") || stageStr.includes("prepar")) return 5;
 
     return 4;
   }, [decodedQuery?.progress?.stage]);

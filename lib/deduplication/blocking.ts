@@ -8,12 +8,24 @@ import { normalizeBusinessNameFull } from "./normalize";
 import { normalizePhoneToInternational, extractAllPhones } from "./phone";
 import { normalizeWebsiteCanonical, extractAllWebsites } from "./website";
 
-// ─── Geohash (simplified 3-char) ─────────────────────────────────────────────
+// ─── Geohash (fine-grained cell blocking) ────────────────────────────────────
 
-function simpleGeohash(lat: number, lng: number): string {
-  // 3-char geohash ≈ 150km cells — coarse but effective for blocking
-  const latBucket = Math.floor(lat / 2);
-  const lngBucket = Math.floor(lng / 2);
+// ~1.1km cells. Candidate pairs are generated with 3×3 neighbour expansion, so
+// genuine co-located duplicates (same place listed under different place_ids)
+// are always compared, while an entire city no longer collapses into a single
+// giant bucket — which previously produced O(n²) candidate pairs and made the
+// "Cleaning results" stage appear to hang.
+const GEO_CELL_SIZE = 0.01;
+
+function geoCellBuckets(lat: number, lng: number): { latBucket: number; lngBucket: number } {
+  return {
+    latBucket: Math.floor(lat / GEO_CELL_SIZE),
+    lngBucket: Math.floor(lng / GEO_CELL_SIZE),
+  };
+}
+
+function geoCellKey(lat: number, lng: number): string {
+  const { latBucket, lngBucket } = geoCellBuckets(lat, lng);
   return `${latBucket}_${lngBucket}`;
 }
 
@@ -50,10 +62,9 @@ export function buildBlockingIndex(records: BusinessRecord[]): BlockingIndex {
       addToIndex(cityIndex, r.city.toLowerCase().trim(), i);
     }
 
-    // Geohash blocking
+    // Geohash blocking (fine-grained cell)
     if (r.latitude != null && r.longitude != null) {
-      const hash = simpleGeohash(r.latitude, r.longitude);
-      addToIndex(geohashIndex, hash, i);
+      addToIndex(geohashIndex, geoCellKey(r.latitude, r.longitude), i);
     }
 
     // Name token blocking: first 2 tokens of normalized name
@@ -117,13 +128,16 @@ export function getCandidates(index: BlockingIndex, recordIdx: number, records: 
     }
   }
 
-  // Geohash candidates
+  // Geohash candidates (own cell + 8 neighbours)
   if (r.latitude != null && r.longitude != null) {
-    const hash = simpleGeohash(r.latitude, r.longitude);
-    const indices = index.geohashIndex.get(hash);
-    if (indices) {
-      for (const idx of indices) {
-        if (idx !== recordIdx) candidates.add(idx);
+    const { latBucket, lngBucket } = geoCellBuckets(r.latitude, r.longitude);
+    for (let dLat = -1; dLat <= 1; dLat++) {
+      for (let dLng = -1; dLng <= 1; dLng++) {
+        const indices = index.geohashIndex.get(`${latBucket + dLat}_${lngBucket + dLng}`);
+        if (!indices) continue;
+        for (const idx of indices) {
+          if (idx !== recordIdx) candidates.add(idx);
+        }
       }
     }
   }
@@ -181,11 +195,20 @@ export function getAllCandidatePairs(index: BlockingIndex, records: BusinessReco
     }
   }
 
-  // Geohash pairs (only within same cell)
-  for (const [, indices] of index.geohashIndex) {
-    for (let a = 0; a < indices.length; a++) {
-      for (let b = a + 1; b < indices.length; b++) {
-        addPair(indices[a], indices[b]);
+  // Geohash pairs: compare each record against its own cell + 8 neighbours.
+  // Cells are ~1km, so genuine co-located duplicates are always paired, while a
+  // whole city no longer forms a single bucket that yields O(n²) pairs.
+  for (let i = 0; i < records.length; i++) {
+    const r = records[i];
+    if (r.latitude == null || r.longitude == null) continue;
+    const { latBucket, lngBucket } = geoCellBuckets(r.latitude, r.longitude);
+    for (let dLat = -1; dLat <= 1; dLat++) {
+      for (let dLng = -1; dLng <= 1; dLng++) {
+        const indices = index.geohashIndex.get(`${latBucket + dLat}_${lngBucket + dLng}`);
+        if (!indices) continue;
+        for (const j of indices) {
+          if (j > i) addPair(i, j);
+        }
       }
     }
   }

@@ -254,6 +254,10 @@ function MapContent({
 // Main BusinessMap component with API provider
 export default function BusinessMap(props: BusinessMapProps) {
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+  // A Map ID enables the vector map + Advanced Markers. If a real Cloud Map ID
+  // is provided via env, use it (for custom styling); otherwise fall back to a
+  // placeholder which still renders the vector map and markers.
+  const mapId = process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID || "aether-dark-map";
   const [mapError, setMapError] = useState(false);
 
   if (!apiKey) {
@@ -291,7 +295,7 @@ export default function BusinessMap(props: BusinessMapProps) {
         <Map
           defaultCenter={defaultCenter}
           defaultZoom={6}
-          mapId="aether-dark-map"
+          mapId={mapId}
           style={{ width: "100%", height: "100%" }}
           gestureHandling="greedy"
           zoomControl={true}
