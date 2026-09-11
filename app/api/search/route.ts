@@ -1,5 +1,5 @@
 import { parseQuery } from "@/lib/query-parser";
-import { createSearchJob, updateSearchJob } from "@/lib/db";
+import { createSearchJob, updateSearchJob, findReusableJob } from "@/lib/db";
 import { runSearchWorkflow } from "@/lib/data-engine";
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
@@ -55,7 +55,21 @@ export async function POST(request: Request) {
       });
     }
 
-    // 2. Create search job record linked to this user
+    // 2. Reuse a previous search if the user has already run this same command
+    //    and it produced saved results. The (expensive) Google Places fetch only
+    //    runs when there is no cached result — i.e. only when it would find new data.
+    const reusable = await findReusableJob(userId, command);
+    if (reusable) {
+      return NextResponse.json({
+        success: true,
+        jobId: reusable.id,
+        cached: true,
+        totalResults: reusable.totalResults,
+        query: parsedQuery,
+      });
+    }
+
+    // 3. Create search job record linked to this user
     const job = await createSearchJob(command, userId);
 
     await updateSearchJob(job.id, {
@@ -66,7 +80,7 @@ export async function POST(request: Request) {
       }),
     });
 
-    // 3. Run the search workflow in background (do not await)
+    // 4. Run the search workflow in background (do not await)
     (async () => {
       try {
         await runSearchWorkflow(job.id, command, 250);

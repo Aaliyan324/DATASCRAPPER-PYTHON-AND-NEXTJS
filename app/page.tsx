@@ -10,7 +10,6 @@ import {
   AlertTriangle,
   Database,
   SlidersHorizontal,
-  ChevronRight,
   Sparkles,
   Paperclip,
   Lightbulb,
@@ -34,14 +33,7 @@ import {
   useUser,
   useAuth,
 } from "@clerk/nextjs";
-
-interface HistoryJob {
-  id: string;
-  originalCommand: string;
-  status: string;
-  totalResults: number;
-  createdAt: string;
-}
+import SidebarHistory from "@/components/SidebarHistory";
 
 interface Message {
   id: string;
@@ -84,7 +76,6 @@ export default function Home() {
 
   const [command, setCommand] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [history, setHistory] = useState<HistoryJob[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [messages, setMessages] = useState<Message[]>([
@@ -117,23 +108,6 @@ export default function Home() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
-
-  // Fetch history when signed in
-  useEffect(() => {
-    if (!isSignedIn) return;
-    async function fetchHistory() {
-      try {
-        const res = await fetch("/api/history");
-        if (res.ok) {
-          const data = await res.json();
-          if (data.success) setHistory(data.jobs || []);
-        }
-      } catch (err) {
-        console.error("Failed to load search history", err);
-      }
-    }
-    fetchHistory();
-  }, [isSignedIn]);
 
   // Focus input on load
   useEffect(() => {
@@ -188,7 +162,11 @@ export default function Home() {
           {
             id: (Date.now() + 2).toString(),
             role: "assistant",
-            content: `I found some results! Taking you there now...`,
+            content: data.cached
+              ? `I already have saved results for this search${
+                  data.totalResults ? ` (${data.totalResults} records)` : ""
+                }. Opening them instantly...`
+              : `I found some results! Taking you there now...`,
           },
         ]);
         // Redirect after a short delay to let the user see the message
@@ -342,35 +320,11 @@ export default function Home() {
 
           {/* History Feed */}
           <div className="flex-1 overflow-y-auto flex flex-col gap-2 pr-1">
-            <span className="text-[11px] font-mono text-slate-400 uppercase tracking-wider px-1">
-              Recent Activity
-            </span>
-
-            {!isSignedIn ? (
-              <p className="text-xs text-slate-500 font-mono italic px-1">
-                Sign in to see your history
-              </p>
-            ) : history.length === 0 ? (
-              <p className="text-xs text-slate-500 font-mono italic px-1">
-                No past tasks
-              </p>
-            ) : (
-              <div className="flex flex-col gap-1">
-                {history.map((job) => (
-                  <button
-                    key={job.id}
-                    onClick={() => {
-                      router.push(`/search/${job.id}`);
-                      if (isMobile) setSidebarOpen(false);
-                    }}
-                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-[#1e2330] text-xs text-slate-300 hover:text-white truncate transition-all group flex items-center justify-between"
-                  >
-                    <span className="truncate">{job.originalCommand}</span>
-                    <ChevronRight className="h-3 w-3 text-purple-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
-                  </button>
-                ))}
-              </div>
-            )}
+            <SidebarHistory
+              onNavigate={() => {
+                if (isMobile) setSidebarOpen(false);
+              }}
+            />
           </div>
         </div>
       </aside>

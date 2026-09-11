@@ -56,6 +56,8 @@ export interface Business {
   additionalData: any | null;
   createdAt: Date;
   updatedAt: Date;
+  /** Transient: true when this business was newly added to the DB by the current job (set by the results API, not persisted). */
+  isNew?: boolean;
 }
 
 // Fallback JSON DB configuration (local to project)
@@ -249,6 +251,68 @@ export async function getSearchJobs(userId?: string | null): Promise<SearchJob[]
   const db = initializeJsonDb();
   const jobs = userId ? db.jobs.filter((j) => j.userId === userId) : db.jobs;
   return jobs;
+}
+
+/**
+ * Normalise a natural-language search command so that cosmetically different
+ * but semantically identical queries collapse to the same key
+ * (e.g. "Restaurants in Lahore!" === "restaurants   in lahore").
+ * Used to decide whether a previous search can be reused instead of re-fetching.
+ */
+export function normalizeCommand(command: string): string {
+  return (command || "")
+    .toLowerCase()
+    .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Find a previously COMPLETED job for the same user whose normalised command
+ * matches and that already has saved results. When one exists the caller can
+ * reuse it instead of re-running the (expensive) Google Places fetch, so the
+ * scraping workflow only runs when it would actually produce new results.
+ */
+export async function findReusableJob(
+  userId: string,
+  command: string
+): Promise<SearchJob | null> {
+  const normalized = normalizeCommand(command);
+  if (!userId || !normalized) return null;
+
+  if (prisma) {
+    try {
+      const candidates = await prisma.searchJob.findMany({
+        where: { userId, status: "COMPLETED", totalResults: { gt: 0 } },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      });
+      const match = candidates.find(
+        (j) => normalizeCommand(j.originalCommand) === normalized
+      );
+      if (match) {
+        return {
+          ...match,
+          userId: match.userId || null,
+          status: match.status as JobStatus,
+        };
+      }
+      return null;
+    } catch (e) {
+      console.error("Prisma error in findReusableJob, falling back:", e);
+    }
+  }
+
+  // JSON Fallback
+  const db = initializeJsonDb();
+  const match = db.jobs.find(
+    (j) =>
+      j.userId === userId &&
+      j.status === "COMPLETED" &&
+      j.totalResults > 0 &&
+      normalizeCommand(j.originalCommand) === normalized
+  );
+  return match || null;
 }
 
 export async function saveBusinesses(

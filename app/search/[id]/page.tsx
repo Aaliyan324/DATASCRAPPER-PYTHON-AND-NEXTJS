@@ -41,6 +41,7 @@ import { SearchJob, Business } from "@/lib/db";
 import { SearchPlan } from "@/lib/data-engine";
 import { BusinessRecord, DuplicateGroup } from "@/lib/deduplication/types";
 import ExportDialog from "@/components/ExportDialog";
+import SidebarHistory from "@/components/SidebarHistory";
 import dynamic from "next/dynamic";
 
 const BusinessMap = dynamic(() => import("@/components/map/BusinessMap"), {
@@ -183,6 +184,9 @@ export default function SearchResultsPage() {
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [deduplicationData, setDeduplicationData] = useState<any>(null);
 
+  // Results tab: "all" businesses vs. those newly added by this search
+  const [activeTab, setActiveTab] = useState<"all" | "new">("all");
+
   // Polling Job Status
   useEffect(() => {
     if (!jobId) return;
@@ -319,6 +323,9 @@ export default function SearchResultsPage() {
     return Array.from(list).sort();
   }, [results]);
 
+  // Businesses newly added to the database by this search (flagged by the results API)
+  const newCount = useMemo(() => results.filter((b) => b.isNew).length, [results]);
+
   // Sorting Handler
   const handleSort = (column: keyof Business) => {
     if (sortBy === column) {
@@ -332,6 +339,10 @@ export default function SearchResultsPage() {
   // Filtered & Sorted Businesses
   const filteredAndSortedBusinesses = useMemo(() => {
     let list = [...results];
+
+    if (activeTab === "new") {
+      list = list.filter((b) => b.isNew);
+    }
 
     if (searchTerm.trim()) {
       const q = searchTerm.toLowerCase().trim();
@@ -386,7 +397,7 @@ export default function SearchResultsPage() {
     });
 
     return list;
-  }, [results, searchTerm, filterCity, filterCategory, filterMinRating, filterHasPhone, filterHasWebsite, sortBy, sortOrder]);
+  }, [results, activeTab, searchTerm, filterCity, filterCategory, filterMinRating, filterHasPhone, filterHasWebsite, sortBy, sortOrder]);
 
   // Paginated Segment
   const paginatedBusinesses = useMemo(() => {
@@ -398,7 +409,7 @@ export default function SearchResultsPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, filterCity, filterCategory, filterMinRating, filterHasPhone, filterHasWebsite]);
+  }, [searchTerm, filterCity, filterCategory, filterMinRating, filterHasPhone, filterHasWebsite, activeTab]);
 
   // Export handlers
   const handleExcelExport = () => {
@@ -590,6 +601,18 @@ export default function SearchResultsPage() {
                 </div>
               </div>
             )}
+
+            {/* Previous Searches */}
+            <div className="flex flex-col gap-2 mt-2">
+              <SidebarHistory
+                activeJobId={jobId}
+                onNavigate={() => {
+                  if (typeof window !== "undefined" && window.innerWidth < 768) {
+                    setSidebarOpen(false);
+                  }
+                }}
+              />
+            </div>
           </div>
         </div>
       </aside>
@@ -866,6 +889,52 @@ export default function SearchResultsPage() {
                 ))}
               </motion.section>
 
+              {/* Results Tabs — All vs newly added by this search */}
+              <motion.section variants={itemVariants} className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1 bg-[#0f1117] border border-slate-800 rounded-lg p-1">
+                  <button
+                    onClick={() => setActiveTab("all")}
+                    className={`px-3 py-1.5 text-[10px] font-mono font-bold rounded transition-colors flex items-center gap-1.5 ${
+                      activeTab === "all"
+                        ? "bg-purple-600 text-white"
+                        : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    ALL
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${activeTab === "all" ? "bg-white/20" : "bg-slate-800"}`}>
+                      {results.length}
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => setActiveTab("new")}
+                    className={`px-3 py-1.5 text-[10px] font-mono font-bold rounded transition-colors flex items-center gap-1.5 ${
+                      activeTab === "new"
+                        ? "bg-emerald-600 text-white"
+                        : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    <Sparkles className="h-3 w-3" />
+                    NEW
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
+                      activeTab === "new"
+                        ? "bg-white/20"
+                        : newCount > 0
+                          ? "bg-emerald-500/20 text-emerald-300"
+                          : "bg-slate-800"
+                    }`}>
+                      {newCount}
+                    </span>
+                  </button>
+                </div>
+                {newCount > 0 && (
+                  <span className="text-[10px] font-mono text-emerald-400/80">
+                    {activeTab === "new"
+                      ? `Showing ${newCount} newly added`
+                      : `${newCount} newly added in this search`}
+                  </span>
+                )}
+              </motion.section>
+
               {/* Filter and Search Controls */}
               <motion.section variants={itemVariants} className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                 <div className="relative flex-1 max-w-md">
@@ -1049,8 +1118,14 @@ export default function SearchResultsPage() {
                           ) : paginatedBusinesses.length === 0 ? (
                             <tr>
                               <td colSpan={9} className="py-12 text-center text-slate-500">
-                                <p className="font-semibold text-sm text-slate-400">No matching businesses found</p>
-                                <p className="text-xs text-slate-500 mt-1">Try broadening your search or clearing filters.</p>
+                                <p className="font-semibold text-sm text-slate-400">
+                                  {activeTab === "new" ? "No newly added businesses" : "No matching businesses found"}
+                                </p>
+                                <p className="text-xs text-slate-500 mt-1">
+                                  {activeTab === "new"
+                                    ? "Every business in this search already existed in your database."
+                                    : "Try broadening your search or clearing filters."}
+                                </p>
                               </td>
                             </tr>
                           ) : (
@@ -1068,8 +1143,15 @@ export default function SearchResultsPage() {
                                 <td className="py-3 px-4 font-mono text-slate-500">
                                   {(currentPage - 1) * pageSize + idx + 1}
                                 </td>
-                                <td className="py-3 px-4 font-medium text-slate-100 max-w-[200px] truncate">
-                                  {b.name}
+                                <td className="py-3 px-4 font-medium text-slate-100 max-w-[200px]">
+                                  <span className="flex items-center gap-1.5">
+                                    <span className="truncate">{b.name}</span>
+                                    {b.isNew && (
+                                      <span className="shrink-0 text-[8px] font-mono font-bold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                                        NEW
+                                      </span>
+                                    )}
+                                  </span>
                                 </td>
                                 <td className="py-3 px-4">
                                   <span className="bg-slate-800 text-slate-300 text-[10px] font-medium py-0.5 px-2 rounded font-mono">

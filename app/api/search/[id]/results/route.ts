@@ -34,6 +34,19 @@ export async function GET(
 
     const results = await getJobResults(id);
 
+    // Flag businesses newly added to the database by THIS job. A business whose
+    // createdAt is at/after the job start was created by this search; pre-existing
+    // matches (re-linked in saveBusinesses) keep their older createdAt.
+    const jobStart = (job.startedAt
+      ? new Date(job.startedAt)
+      : new Date(job.createdAt)
+    ).getTime();
+    const resultsWithNew = results.map((b) => ({
+      ...b,
+      isNew: new Date(b.createdAt).getTime() >= jobStart,
+    }));
+    const newCount = resultsWithNew.filter((b) => b.isNew).length;
+
     // Extract deduplication data from job's parsedQuery
     let deduplicationResult = null;
     if (job.parsedQuery) {
@@ -47,7 +60,7 @@ export async function GET(
       }
     }
 
-    return NextResponse.json({ success: true, results, deduplicationResult });
+    return NextResponse.json({ success: true, results: resultsWithNew, newCount, deduplicationResult });
   } catch (e: any) {
     console.error("API error in GET /api/search/[id]/results:", e);
     return NextResponse.json(
