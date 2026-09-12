@@ -254,6 +254,33 @@ export async function getSearchJobs(userId?: string | null): Promise<SearchJob[]
 }
 
 /**
+ * Delete a search job and its job→business links. Shared Business rows are
+ * intentionally kept (they may be linked to other jobs and are reused by
+ * future searches via de-duplication). Returns true when a job was removed.
+ */
+export async function deleteSearchJob(jobId: string): Promise<boolean> {
+  if (prisma) {
+    try {
+      // Remove the join rows first so we don't depend on the DB cascade being present.
+      await prisma.jobResult.deleteMany({ where: { jobId } });
+      await prisma.searchJob.delete({ where: { id: jobId } });
+      return true;
+    } catch (e) {
+      console.error("Prisma error in deleteSearchJob, falling back:", e);
+    }
+  }
+
+  // JSON Fallback
+  const db = initializeJsonDb();
+  const idx = db.jobs.findIndex((j) => j.id === jobId);
+  if (idx === -1) return false;
+  db.jobs.splice(idx, 1);
+  db.results = db.results.filter((r) => r.jobId !== jobId);
+  writeJsonDb(db);
+  return true;
+}
+
+/**
  * Normalise a natural-language search command so that cosmetically different
  * but semantically identical queries collapse to the same key
  * (e.g. "Restaurants in Lahore!" === "restaurants   in lahore").

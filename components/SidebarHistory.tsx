@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronRight } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
 
 interface HistoryJob {
@@ -61,6 +61,31 @@ export default function SidebarHistory({ activeJobId, onNavigate }: SidebarHisto
     [activeJobId, onNavigate, router]
   );
 
+  const handleDelete = useCallback(
+    async (e: React.MouseEvent, jobId: string) => {
+      e.stopPropagation();
+      if (!window.confirm("Delete this search from your history? This cannot be undone.")) {
+        return;
+      }
+
+      // Optimistic removal; restore from the snapshot if the request fails.
+      const previous = history;
+      setHistory((prev) => prev.filter((j) => j.id !== jobId));
+
+      const wasActive = jobId === activeJobId;
+      try {
+        const res = await fetch(`/api/search/${jobId}`, { method: "DELETE" });
+        if (!res.ok) throw new Error("Failed to delete search");
+        // Deleting the search currently on screen — return home.
+        if (wasActive) router.push("/");
+      } catch (err) {
+        console.error("Failed to delete search", err);
+        setHistory(previous);
+      }
+    },
+    [history, activeJobId, router]
+  );
+
   return (
     <>
       <span className="text-[11px] font-mono text-slate-400 uppercase tracking-wider px-1">
@@ -78,22 +103,31 @@ export default function SidebarHistory({ activeJobId, onNavigate }: SidebarHisto
           {history.map((job) => {
             const isActive = job.id === activeJobId;
             return (
-              <button
+              <div
                 key={job.id}
-                onClick={() => handleClick(job.id)}
-                className={`w-full text-left px-3 py-2 rounded-lg text-xs transition-all group flex items-center justify-between ${
+                className={`group flex items-center rounded-lg transition-all ${
                   isActive
-                    ? "bg-purple-600/20 border border-purple-500/30 text-purple-100"
-                    : "hover:bg-[#1e2330] text-slate-300 hover:text-white"
+                    ? "bg-purple-600/20 border border-purple-500/30"
+                    : "hover:bg-[#1e2330]"
                 }`}
               >
-                <span className="truncate">{job.originalCommand}</span>
-                <ChevronRight
-                  className={`h-3 w-3 text-purple-400 shrink-0 transition-opacity ${
-                    isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                <button
+                  onClick={() => handleClick(job.id)}
+                  className={`flex-1 min-w-0 text-left px-3 py-2 text-xs truncate transition-colors ${
+                    isActive ? "text-purple-100" : "text-slate-300 group-hover:text-white"
                   }`}
-                />
-              </button>
+                >
+                  {job.originalCommand}
+                </button>
+                <button
+                  onClick={(e) => handleDelete(e, job.id)}
+                  title="Delete from history"
+                  aria-label="Delete search from history"
+                  className="mr-1.5 p-1.5 rounded-md text-slate-500 hover:text-red-400 hover:bg-red-500/10 opacity-60 group-hover:opacity-100 focus:opacity-100 transition-all shrink-0"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
             );
           })}
         </div>
